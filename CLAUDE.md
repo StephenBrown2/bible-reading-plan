@@ -17,6 +17,18 @@ public because Pages on a private repo needs a paid plan. Pages only auto-serves
 
 Version control is **jj**, not git. See the `jujutsu` skill.
 
+## Maintaining this file
+
+Keep it current. Anything a future agent has to know before touching the code
+belongs here: a new constraint, a decision that looks arbitrary from the code
+alone, a rule about how the repo is deployed or named. Add it in the same commit
+as the change it describes, and delete anything the change made untrue.
+
+Describe the code as it is now. No changelog, no migration notes, no "this used
+to be X." That is what `jj --no-pager log` and `jj --no-pager diff` are for, and
+a stale account of a previous state is worse than no account at all. Rationale
+for a *current* choice is not history, keep that.
+
 ## Architecture
 
 ### Book order
@@ -49,10 +61,10 @@ This is what lets two people on a shared link land on the same passage on the
 same calendar date without a server. See `runPlan()`.
 
 ### Persistence
-`localStorage`, via a small `window.storage` shim near the top of the script that
-keeps the old `get(key) -> {value}` / `set(key, value)` shape the call sites were
-written against. Every call site is already wrapped in try/catch, so private
-browsing and quota-exceeded degrade to "nothing persists" rather than breaking.
+`localStorage`, reached through a small `window.storage` shim near the top of the
+script: `get(key)` returns `{value}` or `null`, `set(key, value)` writes. Every
+call site wraps its call in try/catch, so private browsing and quota-exceeded
+degrade to "nothing persists" rather than breaking.
 
 ### URL params (the sync mechanism)
 ```
