@@ -96,19 +96,28 @@ The in-app "Shareable link" box (settings panel) regenerates this from the
 correct anchor.
 
 ### Text sourcing, ordered by formatting rather than freshness
-No live provider marks prose paragraphs. helloao gives poetry lines only, bolls
-gives line breaks and inline emphasis, dws-cloud gives nothing, and none of them
-distinguishes a paragraph. The embedded dataset is the only source that does,
-having been built from USFX `<p>` markers, so **WEB is served from the embedded
-copy first** and the live WEB providers sit behind it for the case where the
-embedded data can't be decompressed. A requested translation the embedded copy
-doesn't have (which is all of them but WEB) still goes to the live providers
-first, most structure first, and falls back to the embedded WEB after.
+Providers are tried in descending order of the structure they preserve, not by
+freshness or preference. Only two sources mark prose paragraphs at all: api.bible
+and the embedded dataset. helloao marks poetry lines, bolls marks line breaks,
+dws-cloud marks nothing, and none of those three can tell a paragraph from a
+line. So **WEB comes from the embedded copy first** (no network, no quota, and
+already paragraph-marked), and everything else tries api.bible before the rest.
 
-1. **Live network** for a requested non-WEB translation: `bible.helloao.org`
-   (poetry lines, 66 canonical books, public-domain editions only), then
+1. **Live network**, in order: `api.scripture.api.bible` (real USFM structure:
+   paragraphs, poetry, headings, translator-supplied words; 66 canonical books;
+   key required; only some translations licensed to a given key), then
+   `bible.helloao.org` (poetry lines, 66 books, public-domain editions), then
    `bolls.life` (line breaks and inline emphasis), then
    `bible-api.dws-cloud.com` (nothing). See `fetchChapter()`.
+
+   api.bible's JSON gives USFM para styles: `p`/`m`/`li` prose, `q*` poetry,
+   `s*`/`r`/`d` headings, `b` blank line, and char style `add` for words the
+   translators supplied. `fetchFromApiBible()` maps those onto the renderer's
+   `\n\n` / `\n` / emphasis convention, dropping heading text while keeping the
+   break it implies, matching what the other tiers do with theirs. Careful with
+   the whitespace cleanup there: a verse's leading newline *is* its paragraph
+   marker, so a plain `.trim()` silently flattens a whole chapter into one
+   paragraph.
 
    Everything a provider marks is kept, footnote markers excepted, since the
    embedded dataset strips those at build time and helloao's simple format never
@@ -176,6 +185,24 @@ markers per the scheme above, merge `LJE` into `BAR[5]` (0-indexed chapter 6),
 filter to the 73 needed book IDs, `json.dumps(..., separators=(',',':'))`,
 `gzip.compress(..., 9)`, `base64.b64encode`, drop into the
 `<script type="text/plain" id="embeddedWebDataGz">` tag before `</body>`.
+
+### The api.bible key
+`API_BIBLE_KEY` in `index.html` holds the key XOR'd against `API_BIBLE_PAD` and
+base64'd. That is a speed bump against scrapers grepping for key-shaped strings,
+not a secret store: the page is public, and anyone with devtools can recover it.
+The owner accepted that tradeoff and can regenerate the key at
+<https://scripture.api.bible> if the quota starts moving unexpectedly.
+
+The plaintext key lives in `.api-key`, which is gitignored and **must never be
+committed**. jj snapshots new files automatically, so check `jj st` before
+describing a change. `./set-api-key.py` reads that file and rewrites the
+`API_BIBLE_KEY` line. With no key the provider returns `null` and the chain
+carries on to the next one, so the page still works for anyone who clones it.
+
+That key's licensing reaches CSB, AMP, NASB1995, ASV, KJV, DRA, WEB and a number
+of other public-domain editions. ESV, NIV, NLT, NKJV, NRSVCE, NABRE and RSV are
+*not* included: they need separate publisher approval, and until that exists they
+come from bolls.
 
 ## Things NOT to do
 

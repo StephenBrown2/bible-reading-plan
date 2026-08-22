@@ -223,6 +223,24 @@ const chapterCacheKey = (id, ch, source, translation) => `bible-chapter-cache::$
 const DWS_BASE = "https://bible-api.dws-cloud.com/v1";
 const HELLOAO_BASE = "https://bible.helloao.org/api";
 const BOLLS_BASE = "https://bolls.life";
+const API_BIBLE_BASE = "https://api.scripture.api.bible/v1";
+// api.bible needs a key, and this page is public, so the key is XOR'd against
+// the pad below and base64'd rather than sitting here as a plain string. That
+// defeats scrapers grepping for key-shaped text and nothing more: anyone who
+// opens devtools can recover it. Regenerate the key at scripture.api.bible if
+// the quota starts moving unexpectedly. ./set-api-key.py rewrites this line
+// from the (gitignored) .api-key file.
+const API_BIBLE_PAD = "bible-reading-plan";
+const API_BIBLE_KEY = "DTsnFldEEVUTHD8/D2w6L1YrLiBW";
+function apiBibleKey(){
+  if (!API_BIBLE_KEY) return null;
+  const packed = atob(API_BIBLE_KEY);
+  let out = "";
+  for (let i = 0; i < packed.length; i++){
+    out += String.fromCharCode(packed.charCodeAt(i) ^ API_BIBLE_PAD.charCodeAt(i % API_BIBLE_PAD.length));
+  }
+  return out;
+}
 // Translation codes ?version= can change the displayed text with. Keys are what
 // the URL uses (matching the "Read online" BibleGateway codes where both carry
 // the same edition); values are the per-provider ids, which differ in case and
@@ -239,11 +257,11 @@ const BOLLS_BASE = "https://bolls.life";
 // translation without the Apocrypha answers a deuterocanon request with an
 // empty chapter, which falls through to the next attempt on its own.
 const TEXT_TRANSLATIONS = {
-  WEB:    { helloao: "ENGWEBP", bolls: "WEB",     dws: "web", label: "World English Bible" },
-  KJV:    { helloao: "eng_kjv", bolls: "KJV",     dws: "kjv", label: "King James Version" },
-  ASV:    { helloao: "eng_asv", bolls: "ASV",     label: "American Standard Version" },
+  WEB:    { apibible: "9879dbb7cfe39e4d-01", helloao: "ENGWEBP", bolls: "WEB", dws: "web", label: "World English Bible" },
+  KJV:    { apibible: "de4e12af7f28f599-01", helloao: "eng_kjv", bolls: "KJV", dws: "kjv", label: "King James Version" },
+  ASV:    { apibible: "06125adad2d5898a-01", helloao: "eng_asv", bolls: "ASV", label: "American Standard Version" },
   BSB:    { helloao: "BSB",     bolls: "BSB",     label: "Berean Standard Bible" },
-  DRA:    { helloao: "eng_dra", bolls: "DRB",     label: "Douay-Rheims" },
+  DRA:    { apibible: "179568874c45066f-01", helloao: "eng_dra", bolls: "DRB", label: "Douay-Rheims" },
   NET:    { helloao: "eng_net", bolls: "NET",     label: "NET Bible" },
   YLT:    { helloao: "eng_ylt", bolls: "YLT",     label: "Young's Literal Translation" },
   BBE:    { helloao: "eng_bbe", label: "Bible in Basic English" },
@@ -254,10 +272,10 @@ const TEXT_TRANSLATIONS = {
   NIV:    { bolls: "NIV",       label: "New International Version, 1984" },
   NLT:    { bolls: "NLT",       label: "New Living Translation" },
   NKJV:   { bolls: "NKJV",      label: "New King James Version" },
-  CSB:    { bolls: "CSB17",     label: "Christian Standard Bible" },
-  NASB:   { bolls: "NASB",      label: "New American Standard Bible" },
+  CSB:    { apibible: "a556c5305ee15c3f-01", bolls: "CSB17", label: "Christian Standard Bible" },
+  NASB:   { apibible: "b8ee27bcd1cae43a-01", bolls: "NASB", label: "New American Standard Bible" },
   MSG:    { bolls: "MSG",       label: "The Message" },
-  AMP:    { bolls: "AMP",       label: "Amplified Bible" },
+  AMP:    { apibible: "a81b73293d3080c9-01", bolls: "AMP", label: "Amplified Bible" },
   RSV:    { bolls: "RSV",       label: "Revised Standard Version" },
   NRSVCE: { bolls: "NRSVCE",    label: "NRSV Catholic Edition" },
   RSVCE:  { bolls: "RSV2CE",    label: "RSV Second Catholic Edition" },
@@ -388,6 +406,68 @@ function wordCount(text){ return text.trim().split(/\s+/).filter(Boolean).length
 // code, or a translation that doesn't exist for that book/provider) this
 // falls back to WEB — and for deuterocanon books, only bible-api.dws-cloud.com
 // carries the Apocrypha at all, so that's the effective "Catholic version" fallback.
+// api.bible returns real USFM structure, the only live provider that does: para
+// styles p/m/li for prose, q* for poetry lines, s* for section headings, b for
+// a blank line, and char style "add" for translator-supplied words. Headings are
+// dropped and become a paragraph break, matching what the embedded dataset and
+// helloao do with theirs.
+const API_BIBLE_HEADING = /^(s|r|d|ms|mr|sp|sr)\d*$/;
+function apiBibleParaBreak(style){
+  if (!style) return "\n\n";
+  if (API_BIBLE_HEADING.test(style)) return "\n\n";
+  if (style === "b") return "\n\n";
+  return /^q/.test(style) ? "\n" : "\n\n";
+}
+async function fetchFromApiBible(bookId, chapterNum, translation){
+  const key = apiBibleKey();
+  if (!key) return null;
+  const url = `${API_BIBLE_BASE}/bibles/${translation}/chapters/${bookId}.${chapterNum}` +
+    "?content-type=json&include-notes=false&include-titles=true&include-verse-spans=false";
+  const res = await fetch(url, { headers: { "api-key": key } });
+  if (!res.ok) return null;
+  const body = await res.json();
+  const content = body && body.data && body.data.content;
+  if (!Array.isArray(content)) return null;
+
+  const verses = [];
+  let current = null, pending = "";
+  const add = (text) => {
+    if (!text) return;
+    if (current === null) return;             // text before the first verse marker
+    const last = verses[verses.length - 1];
+    if (last && last.verse === current){
+      last.text += pending + text;
+    } else {
+      verses.push({ verse: current, text: pending + text });
+    }
+    pending = "";
+  };
+  const walk = (items, emphasise) => {
+    for (const item of items || []){
+      if (item.type === "text"){ add(emphasise ? EM_OPEN + item.text + EM_CLOSE : item.text); continue; }
+      if (item.name === "verse"){ current = Number(item.attrs && item.attrs.number); continue; }
+      const style = item.attrs && item.attrs.style;
+      walk(item.items, emphasise || style === "add" || style === "qt");
+    }
+  };
+  for (const para of content){
+    const style = para.attrs && para.attrs.style;
+    pending = apiBibleParaBreak(style);
+    if (style && API_BIBLE_HEADING.test(style)) continue;   // break only, drop the words
+    walk(para.items, false);
+  }
+  const cleaned = verses
+    // Leading newlines are the paragraph/line marker for this verse and have to
+    // survive; only horizontal whitespace and trailing breaks get trimmed.
+    .map(v => ({ verse: v.verse, text: v.text
+      .replace(/\u00a0/g, " ")
+      .replace(/[^\S\n]+/g, " ")
+      .replace(/ *\n */g, "\n")
+      .replace(/^[^\S\n]+/, "")
+      .replace(/\s+$/, "") }))
+    .filter(v => v.verse && v.text);
+  return cleaned.length ? { verses: cleaned } : null;
+}
 async function fetchFromHelloAO(bookId, chapterNum, translation){
   const res = await fetch(`${HELLOAO_BASE}/${translation}/${bookId}/${chapterNum}.simple.json`);
   if (!res.ok) return null;
@@ -508,17 +588,18 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
   // Build the ordered list of attempts, dropping any the provider can't serve.
   const attempts = [];
   const PROVIDERS = {
+    apibible: fetchFromApiBible,
     helloao: fetchFromHelloAO,
     bolls: fetchFromBolls,
     dws: fetchFromDwsCloud
   };
-  // Most structure first: helloao (poetry lines), bolls (line breaks and
-  // emphasis), dws (none). None of the three marks prose paragraphs.
+  // Most structure first: api.bible (paragraphs, poetry, headings, emphasis),
+  // helloao (poetry lines), bolls (line breaks and emphasis), dws (none).
   const attempt = (code) => {
     const t = TEXT_TRANSLATIONS[code];
     if (!t) return;
-    for (const source of ["helloao", "bolls", "dws"]){
-      if (source === "helloao" && isDeutero) continue;
+    for (const source of ["apibible", "helloao", "bolls", "dws"]){
+      if ((source === "helloao" || source === "apibible") && isDeutero) continue;
       if (t[source]) attempts.push([source, PROVIDERS[source], t[source], t.label]);
     }
   };
