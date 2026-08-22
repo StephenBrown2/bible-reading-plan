@@ -151,7 +151,7 @@
   <div class="confirm" id="confirmMsg"></div>
 
   <div class="panel" id="textPanel">
-    <label>Passage text (World English Bible, public domain)</label>
+    <label id="textPanelLabel">Passage text</label>
     <div class="passage-text" id="passageText">Loading…</div>
   </div>
 
@@ -219,7 +219,23 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const chapterCacheKey = (id, ch, translation) => `bible-chapter-cache::${id}:${ch}:${translation}`;
 const DWS_BASE = "https://bible-api.dws-cloud.com/v1";
 const HELLOAO_BASE = "https://bible.helloao.org/api";
-const HELLOAO_TRANSLATION = "ENGWEBP"; // World English Bible; 66 canonical books only
+// Translation codes ?version= can actually change the displayed text with.
+// The "Read online" dropdown further down uses BibleGateway codes (ESV, CSB,
+// NIV...), which are copyrighted and carried by neither text provider, so a
+// ?version= naming one of those still steers the BibleGateway link but leaves
+// the text as WEB. Keys are what the URL uses; values are the per-provider ids.
+// helloao carries the 66 canonical books only, so a deuterocanon chapter can
+// only use a code with a `dws` id.
+const TEXT_TRANSLATIONS = {
+  WEB: { helloao: "ENGWEBP", dws: "web", label: "World English Bible" },
+  KJV: { helloao: "eng_kjv", dws: "kjv", label: "King James Version" },
+  ASV: { helloao: "eng_asv", label: "American Standard Version" },
+  BSB: { helloao: "BSB", label: "Berean Standard Bible" },
+  DRA: { helloao: "eng_dra", label: "Douay-Rheims" },
+  NET: { helloao: "eng_net", label: "NET Bible" },
+  YLT: { helloao: "eng_ylt", label: "Young's Literal Translation" },
+  BBE: { helloao: "eng_bbe", label: "Bible in Basic English" }
+};
 
 // [name, chapters, approx total word count (fallback only), apiId, isDeutero]
 const BOOKS = [
@@ -404,40 +420,41 @@ async function fetchFromEmbedded(bookId, chapterNum){
 }
 
 
+// Returns { verses, translation } where `translation` names the edition the
+// text actually came from, which is not always the one asked for.
 async function fetchChapter(bookId, chapterNum, isDeutero){
-  const requested = REQUESTED_VERSION;
-  // Build the ordered list of (provider, translationCode) attempts.
+  const requested = REQUESTED_VERSION && REQUESTED_VERSION.toUpperCase();
+  // Build the ordered list of attempts, dropping any the provider can't serve.
   const attempts = [];
-  if (isDeutero){
-    if (requested) attempts.push(["dws", fetchFromDwsCloud, requested]);
-    attempts.push(["dws", fetchFromDwsCloud, "web"]);
-    attempts.push(["embedded", fetchFromEmbedded, null]);
-  } else {
-    if (requested){
-      attempts.push(["helloao", fetchFromHelloAO, requested]);
-      attempts.push(["dws", fetchFromDwsCloud, requested]);
-    }
-    attempts.push(["helloao", fetchFromHelloAO, HELLOAO_TRANSLATION]);
-    attempts.push(["dws", fetchFromDwsCloud, "web"]);
-    attempts.push(["embedded", fetchFromEmbedded, null]);
+  const attempt = (source, fn, code) => {
+    const t = TEXT_TRANSLATIONS[code];
+    const id = t && (source === "helloao" ? t.helloao : t.dws);
+    if (id) attempts.push([source, fn, id, t.label]);
+  };
+  if (requested){
+    if (!isDeutero) attempt("helloao", fetchFromHelloAO, requested);
+    attempt("dws", fetchFromDwsCloud, requested);
   }
+  if (!isDeutero) attempt("helloao", fetchFromHelloAO, "WEB");
+  attempt("dws", fetchFromDwsCloud, "WEB");
+  attempts.push(["embedded", fetchFromEmbedded, null, TEXT_TRANSLATIONS.WEB.label]);
 
-  for (const [source, fn, translation] of attempts){
+  for (const [source, fn, translation, label] of attempts){
     if (source === "embedded"){
       const data = await fn(bookId, chapterNum);
-      if (data) return data;
+      if (data) return { ...data, translation: label };
       continue;
     }
     const key = chapterCacheKey(bookId, chapterNum, translation);
     try{
       const cached = await window.storage.get(key, false);
-      if (cached) return JSON.parse(cached.value);
+      if (cached) return { ...JSON.parse(cached.value), translation: label };
     }catch(e){ /* no cache yet, fall through */ }
     try{
       const data = await fn(bookId, chapterNum, translation);
       if (data){
         try{ await window.storage.set(key, JSON.stringify(data), false); }catch(e){}
-        return data;
+        return { ...data, translation: label };
       }
     }catch(e){ /* try next attempt */ }
   }
@@ -502,7 +519,8 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
 
   return {
     live: true, name, totalChapters, chapterForProgress: segments[segments.length-1].chapter,
-    segments, sum, bookFinished, nextOrderIndex, nextChapter, nextVerse
+    segments, sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
+    translation: chData.translation
   };
 }
 
@@ -656,6 +674,10 @@ function renderVerseStream(verses){
 
 function renderPassageText(result){
   const el = document.getElementById("passageText");
+  // Name the edition actually shown: a requested ?version= the text providers
+  // don't carry falls back silently otherwise.
+  document.getElementById("textPanelLabel").textContent =
+    result.translation ? `Passage text (${result.translation})` : "Passage text";
   if (!result.live){
     el.innerHTML = `<p style="font-size:13px;color:var(--ink-soft)">Live text wasn't reachable, so this is an estimate rather than the actual passage. Use "Read online" below for the text.</p>`;
     return;

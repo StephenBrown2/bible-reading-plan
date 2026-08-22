@@ -74,8 +74,19 @@ degrade to "nothing persists" rather than breaking.
 - `time`: max minutes per reading
 - `wpm`: reading speed
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
-- `version`: optional translation code, tried against the live API first, falls
-  back to WEB (or the embedded Apocrypha-inclusive edition for deuterocanon)
+- `version`: optional translation code, serving two unrelated namespaces
+
+`version` is the one param that means two things at once. It selects the
+"Read online" BibleGateway link's translation, where any BibleGateway code
+works (ESV, CSB, NIV...), *and* it's tried against the text providers, which
+carry only public-domain editions. `TEXT_TRANSLATIONS` is the list of codes
+that can actually change the displayed text; anything outside it steers the
+BibleGateway link only and the text stays WEB. The text panel's label names
+the edition actually shown so that fallback isn't silent. Adding a code to
+`TEXT_TRANSLATIONS` means checking it against both providers first: helloao
+ids are case-sensitive and mostly `eng_*`, dws ids are lowercase, and helloao
+carries the 66 canonical books only, so a deuterocanon chapter can only use a
+code with a `dws` id.
 
 The in-app "Shareable link" box (settings panel) regenerates this from the
 *actual stored* `startDate`, so copying it mid-plan still hands a new reader the
