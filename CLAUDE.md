@@ -85,6 +85,17 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
 This is what lets two people on a shared link land on the same passage on the
 same calendar date without a server. See `runPlan()`.
 
+### Single-chapter books
+Ten books are one chapter (Obadiah, Philemon, 2-3 John, Jude, and five of the
+wider canon), where a chapter number carries no information. `referenceRange()`
+labels those by verse instead, "Verses 1-41" or "All 25 verses", and the meta
+row and progress bar count verses rather than "Ch. 1 of 1". BibleGateway
+addresses them the same way, so the external link takes a bare verse range.
+
+The percentage counts verse *positions*, not verse numbers: numbering has gaps
+in several of these books, so the last verse number is not the number of verses
+read.
+
 ### Persistence
 `localStorage` through two helpers, `load(key, fallback)` and `save(key, value)`,
 which own the JSON round-trip and the try/catch. Private browsing and a full

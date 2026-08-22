@@ -630,6 +630,9 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
   return {
     live: true, name, totalChapters, chapterForProgress: chapterPointer,
     bookId, chapter: chapterPointer, verses: chosen,
+    // for one-chapter books, which measure progress in verses rather than chapters
+    chapterVerses: verses.length, versesRead: versePointer - 1 + chosen.length,
+    lastVerseInChapter: verses[verses.length - 1].verse,
     firstVerse: chosen[0].verse, lastVerse: chosen[chosen.length - 1].verse,
     wholeChapter: chosen.length === verses.length,
     sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
@@ -715,9 +718,26 @@ async function generateReading(cursor, allowLive){
 
 let CURRENT_RESULT = null;
 
+// Ten books are a single chapter (Obadiah, Philemon, 2-3 John, Jude, and five
+// of the wider canon), where a chapter number carries no information. Those are
+// referred to by verse alone, which is also how BibleGateway addresses them.
 function referenceRange(result){
+  const singleChapter = result.totalChapters === 1;
   if (!result.live){
-    return { book: result.name, label: `Chapter ${result.range}${result.partLabel ? " · " + result.partLabel : ""}`, gwRef: result.range.split(":")[0] };
+    const label = singleChapter ? "Whole book" : `Chapter ${result.range}`;
+    return {
+      book: result.name,
+      label: label + (result.partLabel ? " · " + result.partLabel : ""),
+      gwRef: singleChapter ? "1" : result.range.split(":")[0]
+    };
+  }
+  if (singleChapter){
+    const verses = `${result.firstVerse}-${result.lastVerse}`;
+    return {
+      book: result.name,
+      label: result.wholeChapter ? `All ${result.lastVerse} verses` : `Verses ${verses}`,
+      gwRef: verses
+    };
   }
   const range = result.wholeChapter
     ? `${result.chapter}`
@@ -796,6 +816,25 @@ function updateReadLink(bookName, gwRef){
   document.getElementById("readLink").href = url;
 }
 
+// A one-chapter book measures its progress in verses; everything else in
+// chapters. Both fall back to chapters when the reading came from the offline
+// estimate, which knows no verse numbers.
+const singleChapterBook = (result) => result.totalChapters === 1 && result.live;
+function progressLabel(result){
+  if (singleChapterBook(result)) return `V. ${result.lastVerse} of ${result.lastVerseInChapter}`;
+  // The offline estimate has no verse numbers, and "Ch. 1 of 1" says nothing.
+  if (result.totalChapters === 1) return "";
+  return `Ch. ${result.chapterForProgress} of ${result.totalChapters}`;
+}
+function progressPercent(result){
+  // Counted by position rather than verse number: numbering has gaps in a few
+  // books, so the last verse number is not the number of verses read.
+  const [read, total] = singleChapterBook(result)
+    ? [result.versesRead, result.chapterVerses]
+    : [result.chapterForProgress, result.totalChapters];
+  return Math.round((read / total) * 100);
+}
+
 function render(todayKey, result){
   const ref = referenceRange(result);
   document.getElementById("dateLine").textContent =
@@ -809,12 +848,12 @@ function render(todayKey, result){
     <div class="range">${ref.label}</div>
     <div class="meta-row">
       <span>~${estMinutes(result.sum)} min read</span>
-      <span>Ch. ${result.chapterForProgress} of ${result.totalChapters}</span>
+      <span>${progressLabel(result)}</span>
     </div>
     ${!result.live ? '<div class="source-note">Estimate — live text unavailable</div>' : ""}
   `;
 
-  const pct = Math.round((result.chapterForProgress / result.totalChapters) * 100);
+  const pct = progressPercent(result);
   document.getElementById("progressWrap").style.display = "block";
   document.getElementById("bookProgressLabel").textContent = `Progress through ${result.name}`;
   document.getElementById("bookProgressPct").textContent = `${pct}%`;
