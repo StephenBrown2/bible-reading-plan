@@ -208,11 +208,15 @@ let WORDS_PER_MINUTE = 180;
 let MIN_MINUTES = 5, MAX_MINUTES = 10;
 let TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
 let TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE; // strict upper bound
+// One chapter per reading at most: short chapters are not merged to fill the
+// time budget. A chapter longer than the budget is still split across days.
+let ONE_CHAPTER = false;
 let REQUESTED_VERSION = null; // optional translation code, passed through to the live text API
 const DEFAULT_SEED = "bible-reading-plan-v1";
 const ACTIVE_SEED_KEY = "bible-plan-active-seed";
 const ACTIVE_SETTINGS_KEY = "bible-plan-active-settings";
-const stateKeyFor = (seed, time, wpm) => `bible-plan-state::${seed}::${time}-${wpm}`;
+const stateKeyFor = (seed, time, wpm, oneChapter) =>
+  `bible-plan-state::${seed}::${time}-${wpm}${oneChapter ? "-1ch" : ""}`;
 const LIVE_CATCHUP_LIMIT = 30;   // only hit the network for the most recent N missed days
 const CATCHUP_DISPLAY_LIMIT = 20; // only list the most recent N missed days in the UI
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -667,7 +671,7 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
 
   let nextOrderIndex = orderIndex, nextChapter = chapterPointer, nextVerse = v, bookFinished = false;
 
-  if (reachedEnd && sum < TARGET_MIN_WORDS && chapterPointer < totalChapters){
+  if (!ONE_CHAPTER && reachedEnd && sum < TARGET_MIN_WORDS && chapterPointer < totalChapters){
     const nextCh = await fetchChapter(bookId, chapterPointer + 1, isDeutero);
     if (nextCh){
       const verses2 = nextCh.verses;
@@ -743,7 +747,7 @@ function buildOffline(orderIndex, startChapter, startPart){
   const avgWords = totalWords / chapters;
   let ch = startChapter, sum = avgWords;
   const chosen = [ch]; ch++;
-  while (sum < TARGET_MIN_WORDS && ch <= chapters && (sum + avgWords) < TARGET_MAX_WORDS && !OFFLINE_OVERRIDES[`${name}|${ch}`]){
+  while (!ONE_CHAPTER && sum < TARGET_MIN_WORDS && ch <= chapters && (sum + avgWords) < TARGET_MAX_WORDS && !OFFLINE_OVERRIDES[`${name}|${ch}`]){
     chosen.push(ch); sum += avgWords; ch++;
   }
   const nextOrderIndex = ch > chapters ? orderIndex + 1 : orderIndex;
@@ -769,6 +773,10 @@ function readUrlParams(){
     time: p.has("time") ? parseInt(p.get("time"), 10) : null,
     wpm: p.has("wpm") ? parseInt(p.get("wpm"), 10) : null,
     version: p.has("version") ? p.get("version").trim() : null,
+    // null means "not in the URL", so a stored preference can still apply
+    oneChapter: p.has("oneChapter")
+      ? !["0", "false", "no"].includes(p.get("oneChapter").trim().toLowerCase())
+      : null,
     startDate: (startDate && DATE_RE.test(startDate)) ? startDate : null
   };
 }
@@ -780,20 +788,24 @@ async function setActiveSeed(seed){
   try{ await window.storage.set(ACTIVE_SEED_KEY, JSON.stringify(seed), false); }catch(e){}
 }
 async function getActiveSettings(){
+  const defaults = { time: 10, wpm: 180, version: null, oneChapter: false };
   try{
     const res = await window.storage.get(ACTIVE_SETTINGS_KEY, false);
-    return res ? JSON.parse(res.value) : { time: 10, wpm: 180, version: null };
-  }catch(e){ return { time: 10, wpm: 180, version: null }; }
+    return res ? { ...defaults, ...JSON.parse(res.value) } : defaults;
+  }catch(e){ return defaults; }
 }
-async function setActiveSettings(time, wpm, version){
-  try{ await window.storage.set(ACTIVE_SETTINGS_KEY, JSON.stringify({ time, wpm, version }), false); }catch(e){}
+async function setActiveSettings(time, wpm, version, oneChapter){
+  try{
+    await window.storage.set(ACTIVE_SETTINGS_KEY,
+      JSON.stringify({ time, wpm, version, oneChapter }), false);
+  }catch(e){}
 }
-async function loadState(seed, time, wpm){
-  try{ const res = await window.storage.get(stateKeyFor(seed, time, wpm), false); return res ? JSON.parse(res.value) : defaultState(); }
+async function loadState(seed, time, wpm, oneChapter){
+  try{ const res = await window.storage.get(stateKeyFor(seed, time, wpm, oneChapter), false); return res ? JSON.parse(res.value) : defaultState(); }
   catch(e){ return defaultState(); }
 }
-async function saveState(seed, time, wpm, state){
-  try{ await window.storage.set(stateKeyFor(seed, time, wpm), JSON.stringify(state), false); }catch(e){}
+async function saveState(seed, time, wpm, oneChapter, state){
+  try{ await window.storage.set(stateKeyFor(seed, time, wpm, oneChapter), JSON.stringify(state), false); }catch(e){}
 }
 function estMinutes(words){ return Math.max(1, Math.round(words / WORDS_PER_MINUTE)); }
 
@@ -966,6 +978,7 @@ function updateShareLink(state){
   url.searchParams.set("time", MAX_MINUTES);
   url.searchParams.set("wpm", WORDS_PER_MINUTE);
   if (REQUESTED_VERSION) url.searchParams.set("version", REQUESTED_VERSION);
+  if (ONE_CHAPTER) url.searchParams.set("oneChapter", "1");
   if (state && state.startDate) url.searchParams.set("startDate", state.startDate);
   document.getElementById("shareLink").value = url.toString();
   try{ history.replaceState(null, "", url.toString()); }catch(e){}
@@ -980,7 +993,7 @@ async function runPlan(resetFirst){
   document.getElementById("wpmInput").value = WORDS_PER_MINUTE;
   document.getElementById("versionInput").value = REQUESTED_VERSION || "";
 
-  let state = resetFirst ? defaultState() : await loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE);
+  let state = resetFirst ? defaultState() : await loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, ONE_CHAPTER);
   const today = localDateKey(new Date());
   if (state.startDate === null){
     state.startDate = PENDING_START_DATE || today;
@@ -1011,7 +1024,7 @@ async function runPlan(resetFirst){
     }
     state.cursor = cursor;
     state.lastGeneratedDate = today;
-    await saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, state);
+    await saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, ONE_CHAPTER, state);
   }
 
   CURRENT_RESULT = result;
@@ -1027,12 +1040,13 @@ async function init(){
   MAX_MINUTES = urlParams.time || activeSettings.time || 10;
   WORDS_PER_MINUTE = urlParams.wpm || activeSettings.wpm || 180;
   REQUESTED_VERSION = urlParams.version || activeSettings.version || null;
+  ONE_CHAPTER = urlParams.oneChapter !== null ? urlParams.oneChapter : !!activeSettings.oneChapter;
   PENDING_START_DATE = urlParams.startDate || null;
   MIN_MINUTES = Math.max(1, MAX_MINUTES - 5);
   TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
   await setActiveSeed(ACTIVE_SEED);
-  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
+  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION, ONE_CHAPTER);
   await runPlan(false);
 }
 
@@ -1065,7 +1079,7 @@ document.getElementById("applySeedBtn").addEventListener("click", async () => {
   TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
   await setActiveSeed(ACTIVE_SEED);
-  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
+  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION, ONE_CHAPTER);
   document.getElementById("confirmMsg").textContent = `Applied seed "${ACTIVE_SEED}" (${MAX_MINUTES} min, ${WORDS_PER_MINUTE} wpm).`;
   // A manual start-date edit only takes effect on a brand-new track (see runPlan).
   const dateVal = document.getElementById("startDateInput").value;

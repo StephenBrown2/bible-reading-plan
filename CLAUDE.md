@@ -64,9 +64,11 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
 - if there's a gap since `lastGeneratedDate`, it walks forward through **every**
   missed day in sequence (not skipping), showing a "Catching up" list, landing on
   today's reading last.
-- Each unique `(seed, time, wpm)` combination is tracked independently. Changing
-  any of the three starts a fresh, separately-tracked plan.
-- `startDate` is locked in the first time a given `(seed, time, wpm)` combo is
+- Each unique `(seed, time, wpm, oneChapter)` combination is tracked
+  independently. Changing any of the four starts a fresh, separately-tracked
+  plan. The key only gains its `-1ch` suffix when `oneChapter` is on, so plans
+  that predate the flag keep the key they already had.
+- `startDate` is locked in the first time a given combination is
   used. A `startDate` URL param only seeds a *brand-new* track, it can't
   retroactively shift one already in progress.
 
@@ -81,13 +83,21 @@ degrade to "nothing persists" rather than breaking.
 
 ### URL params (the sync mechanism)
 ```
-?seed=...&time=10&wpm=180&startDate=2026-08-21&version=KJV
+?seed=...&time=10&wpm=180&startDate=2026-08-21&version=KJV&oneChapter=1
 ```
 - `seed`: shuffle seed (any string)
 - `time`: max minutes per reading
 - `wpm`: reading speed
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
+- `oneChapter`: cap each reading at one chapter (`0`/`false`/`no` turns it off)
 - `version`: optional translation code, serving two unrelated namespaces
+
+`oneChapter` is an upper bound, not a fixed size. It stops short chapters being
+merged to reach the time minimum, so a day can be well under it, but a chapter
+longer than `time` still splits across days: Psalm 119 stays four readings, not
+one 40-minute sitting. It is a global (`ONE_CHAPTER`) read by the two places
+that merge a following chapter, one in `buildLive()` and one in the offline
+estimate.
 
 `version` means two things at once. It selects the "Read online" BibleGateway
 link's translation, where any BibleGateway code works, *and* it picks the
