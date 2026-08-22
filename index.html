@@ -111,10 +111,6 @@
   .passage-text{
     margin-top:16px; font-size:16px; line-height:1.75; color:var(--ink);
   }
-  .passage-text .chap-label{
-    font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft);
-    margin:14px 0 4px;
-  }
   .passage-text p{ margin:0 0 14px; }
   .passage-text p:last-child{ margin-bottom:0; }
   .passage-text .poem{ margin:0 0 14px; }
@@ -178,7 +174,7 @@
       <div class="minirow">wpm <input type="number" id="wpmInput" min="50" max="500" /></div>
     </div>
     <div class="row" style="margin-top:10px">
-      <div class="minirow">version <input type="text" id="versionInput" placeholder="e.g. KJV" style="width:80px" /></div>
+      <div class="minirow">version <select id="versionInput"></select></div>
       <div class="minirow">start date <input type="date" id="startDateInput" /></div>
     </div>
     <div class="row" style="margin-top:10px">
@@ -197,20 +193,20 @@
 </div>
 
 <script>
-// localStorage-backed stand-in for the Claude-artifact window.storage API this
-// file was originally written against. Same {value} get shape; the trailing
-// shared-flag argument is ignored. All call sites already try/catch.
-window.storage = {
-  get(key){ const v = localStorage.getItem(key); return v === null ? null : { value: v }; },
-  set(key, value){ localStorage.setItem(key, value); }
-};
+// Every read and write is guarded: private browsing and a full quota both throw,
+// and the page has to keep working without persistence.
+function load(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  }catch(e){ return fallback; }
+}
+function save(key, value){
+  try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){}
+}
 let WORDS_PER_MINUTE = 180;
-let MIN_MINUTES = 1, MAX_MINUTES = 5;
-let TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
+let MAX_MINUTES = 5;
 let TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE; // strict upper bound
-// One chapter per reading at most: short chapters are not merged to fill the
-// time budget. A chapter longer than the budget is still split across days.
-let ONE_CHAPTER = true;
 let REQUESTED_VERSION = null; // optional translation code, passed through to the live text API
 // Seeds are generated on first use rather than fixed, so two people who each
 // open the bare page get different plans. Base58 (no 0/O/I/l) keeps a seed
@@ -218,29 +214,18 @@ let REQUESTED_VERSION = null; // optional translation code, passed through to th
 // the URL on every render, which is what makes a freshly generated plan
 // shareable, the same way startDate becomes shareable once it is locked in.
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function generateSeed(length = 12){
-  const out = [];
-  while (out.length < length){
-    for (const b of crypto.getRandomValues(new Uint8Array(length))){
-      // 232 is 4 * 58: discarding the rest keeps every character equally likely
-      if (b < 232 && out.length < length) out.push(BASE58[b % 58]);
-    }
-  }
-  return out.join("");
-}
+const generateSeed = (length = 12) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(length)), b => BASE58[b % 58]).join("");
 const ACTIVE_SEED_KEY = "bible-plan-active-seed";
 const ACTIVE_SETTINGS_KEY = "bible-plan-active-settings";
-const stateKeyFor = (seed, time, wpm, oneChapter) =>
-  `bible-plan-state::${seed}::${time}-${wpm}${oneChapter ? "-1ch" : ""}`;
+const stateKeyFor = (seed, time, wpm) => `bible-plan-state::${seed}::${time}-${wpm}`;
 const LIVE_CATCHUP_LIMIT = 30;   // only hit the network for the most recent N missed days
 const CATCHUP_DISPLAY_LIMIT = 20; // only list the most recent N missed days in the UI
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-// Source is part of the key: providers reuse each other's translation ids (both
-// helloao and bolls call the Berean Standard Bible "BSB") but return different
-// amounts of structure, so their copies must not share a cache entry.
+// Source is part of the key: two providers can use the same translation id but
+// return different amounts of structure, so their copies must not share a
+// cache entry.
 const chapterCacheKey = (id, ch, source, translation) => `bible-chapter-cache::${id}:${ch}:${source}:${translation}`;
-const DWS_BASE = "https://bible-api.dws-cloud.com/v1";
-const HELLOAO_BASE = "https://bible.helloao.org/api";
 const BOLLS_BASE = "https://bolls.life";
 const API_BIBLE_BASE = "https://api.scripture.api.bible/v1";
 // api.bible needs a key, and this page is public, so the key is XOR'd against
@@ -268,22 +253,19 @@ function apiBibleKey(){
 // the text as WEB.
 //
 // Providers are tried in descending order of how much structure they preserve:
-// helloao gives paragraphs and poetry lines, bolls gives poetry lines only, dws
-// gives none. So bolls is the effective primary for everything helloao doesn't
-// carry, which is every copyrighted translation.
+// api.bible marks paragraphs and poetry, bolls marks line breaks only. bolls is
+// the sole source for the copyrighted translations api.bible isn't licensed for.
 //
-// Deuterocanon: helloao has the 66 canonical books only, and a bolls
-// translation without the Apocrypha answers a deuterocanon request with an
-// empty chapter, which falls through to the next attempt on its own.
+// Deuterocanon coverage varies by edition on both. An edition without a book
+// answers with a 404 or an empty chapter, which falls through on its own.
 const TEXT_TRANSLATIONS = {
-  WEB:    { apibible: "9879dbb7cfe39e4d-01", helloao: "ENGWEBP", bolls: "WEB", dws: "web", label: "World English Bible" },
-  KJV:    { apibible: "de4e12af7f28f599-01", helloao: "eng_kjv", bolls: "KJV", dws: "kjv", label: "King James Version" },
-  ASV:    { apibible: "06125adad2d5898a-01", helloao: "eng_asv", bolls: "ASV", label: "American Standard Version" },
-  BSB:    { helloao: "BSB",     bolls: "BSB",     label: "Berean Standard Bible" },
-  DRA:    { apibible: "179568874c45066f-01", helloao: "eng_dra", bolls: "DRB", label: "Douay-Rheims" },
-  NET:    { helloao: "eng_net", bolls: "NET",     label: "NET Bible" },
-  YLT:    { helloao: "eng_ylt", bolls: "YLT",     label: "Young's Literal Translation" },
-  BBE:    { helloao: "eng_bbe", label: "Bible in Basic English" },
+  WEB:    { apibible: "9879dbb7cfe39e4d-01", bolls: "WEB",   label: "World English Bible" },
+  KJV:    { apibible: "de4e12af7f28f599-01", bolls: "KJV",   label: "King James Version" },
+  ASV:    { apibible: "06125adad2d5898a-01", bolls: "ASV",   label: "American Standard Version" },
+  BSB:    { bolls: "BSB",       label: "Berean Standard Bible" },
+  DRA:    { apibible: "179568874c45066f-01", bolls: "DRB",   deutero: true, label: "Douay-Rheims" },
+  NET:    { bolls: "NET",       label: "NET Bible" },
+  YLT:    { bolls: "YLT",       label: "Young's Literal Translation" },
   ESV:    { bolls: "ESV",       label: "English Standard Version" },
   // bolls' 1984 NIV marks poetry lines and section headings; its NIV2011 marks
   // nothing at all. The displayed text takes the formatted edition, which the
@@ -296,10 +278,10 @@ const TEXT_TRANSLATIONS = {
   MSG:    { bolls: "MSG",       label: "The Message" },
   AMP:    { apibible: "a81b73293d3080c9-01", bolls: "AMP", label: "Amplified Bible" },
   RSV:    { bolls: "RSV",       label: "Revised Standard Version" },
-  NRSVCE: { bolls: "NRSVCE",    label: "NRSV Catholic Edition" },
-  RSVCE:  { bolls: "RSV2CE",    label: "RSV Second Catholic Edition" },
-  NABRE:  { bolls: "NABRE",     label: "New American Bible, Revised Edition" },
-  CEB:    { bolls: "CEB",       label: "Common English Bible" }
+  NRSVCE: { bolls: "NRSVCE",    deutero: true, label: "NRSV Catholic Edition" },
+  RSVCE:  { bolls: "RSV2CE",    deutero: true, label: "RSV Second Catholic Edition" },
+  NABRE:  { bolls: "NABRE",     deutero: true, label: "New American Bible, Revised Edition" },
+  CEB:    { bolls: "CEB",       deutero: true, label: "Common English Bible" }
 };
 
 // [name, chapters, approx total word count (fallback only), apiId, isDeutero]
@@ -364,15 +346,6 @@ const OFFLINE_OVERRIDES = {
   "Deuteronomy|28": { words: 1829, verses: 68 }
 };
 
-const VERSIONS_PROTESTANT = [
-  ["ESV","English Standard Version"],["CSB","Christian Standard Bible"],
-  ["NIV","New International Version"],["NLT","New Living Translation"],
-  ["NKJV","New King James Version"],["KJV","King James Version"]
-];
-const VERSIONS_WITH_DEUTERO = [
-  ["NRSVCE","NRSV Catholic Edition"],["RSVCE","RSV Catholic Edition"],
-  ["NABRE","New American Bible, Revised Edition"],["CEB","Common English Bible"]
-];
 
 function mulberry32(a){
   return function(){
@@ -427,26 +400,13 @@ function wordCount(text){ return text.trim().split(/\s+/).filter(Boolean).length
 
 // Both providers return World English Bible text (public domain), so results
 // are interchangeable and share one cache. Provider order per book: the
-// Free Use Bible API (helloao) only carries the 66 canonical books, so
-// deuterocanon goes straight to bible-api.dws-cloud.com, which carries both;
-// canonical books try helloao first and fall back to dws-cloud on failure.
-// Both default providers return World English Bible text (public domain).
-// If a version code is requested, it's tried first; on failure (unsupported
-// code, or a translation that doesn't exist for that book/provider) this
-// falls back to WEB — and for deuterocanon books, only bible-api.dws-cloud.com
-// carries the Apocrypha at all, so that's the effective "Catholic version" fallback.
 // api.bible returns real USFM structure, the only live provider that does: para
 // styles p/m/li for prose, q* for poetry lines, s* for section headings, b for
 // a blank line, and char style "add" for translator-supplied words. Headings are
-// dropped and become a paragraph break, matching what the embedded dataset and
-// helloao do with theirs.
+// dropped and become a paragraph break, matching what the embedded dataset does
+// with theirs.
 const API_BIBLE_HEADING = /^(s|r|d|ms|mr|sp|sr)\d*$/;
-function apiBibleParaBreak(style){
-  if (!style) return "\n\n";
-  if (API_BIBLE_HEADING.test(style)) return "\n\n";
-  if (style === "b") return "\n\n";
-  return /^q/.test(style) ? "\n" : "\n\n";
-}
+const apiBibleParaBreak = (style) => /^q/.test(style || "") ? "\n" : "\n\n";
 async function fetchFromApiBible(bookId, chapterNum, translation){
   const key = apiBibleKey();
   if (!key) return null;
@@ -481,7 +441,10 @@ async function fetchFromApiBible(bookId, chapterNum, translation){
   };
   for (const para of content){
     const style = para.attrs && para.attrs.style;
-    pending = apiBibleParaBreak(style);
+    // A heading's paragraph break must survive the poetry paragraph that often
+    // follows it, so the strongest break in a gap wins, matching build-embedded.py.
+    const brk = apiBibleParaBreak(style);
+    pending = pending === "\n\n" ? "\n\n" : brk;
     if (style && API_BIBLE_HEADING.test(style)) continue;   // break only, drop the words
     walk(para.items, false);
   }
@@ -497,30 +460,9 @@ async function fetchFromApiBible(bookId, chapterNum, translation){
     .filter(v => v.verse && v.text);
   return cleaned.length ? { verses: cleaned } : null;
 }
-async function fetchFromHelloAO(bookId, chapterNum, translation){
-  const res = await fetch(`${HELLOAO_BASE}/${translation}/${bookId}/${chapterNum}.simple.json`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const content = data && data.chapter && data.chapter.content;
-  if (!content) return null;
-  // The API gives poetry line breaks inline as \n within a verse's text already;
-  // "line_break"/"heading" entries between verses mark paragraph boundaries, which
-  // we fold in as a leading \n\n on the next verse (matching the embedded format).
-  const verses = [];
-  let pendingBreak = false;
-  for (const c of content){
-    if (c.type === "line_break" || c.type === "heading"){ pendingBreak = true; continue; }
-    if (c.type !== "verse") continue;
-    let text = c.text || "";
-    if (pendingBreak){ text = "\n\n" + text; pendingBreak = false; }
-    verses.push({ verse: c.number, text });
-  }
-  if (!verses.length) return null;
-  return { verses };
-}
 // bolls returns verse text as small HTML fragments. Everything it marks is kept
-// except footnote markers, which every other tier drops too (the embedded
-// dataset strips <f>/<x> at build time, helloao's simple format omits them):
+// except footnote markers, which the embedded dataset drops too by stripping
+// <f>/<x> at build time:
 //   <br>            line break, becomes the "\n" the renderer already handles
 //   <i>, <e>        words supplied by the translators (NKJV, KJV) or AMP's
 //                   bracketed amplifications, kept as emphasis
@@ -557,22 +499,11 @@ async function fetchFromBolls(bookId, chapterNum, translation){
   if (!verses.length) return null;
   return { verses };
 }
-async function fetchFromDwsCloud(bookId, chapterNum, translation){
-  const res = await fetch(`${DWS_BASE}/chapters/${bookId}/${chapterNum}?translation=${encodeURIComponent(translation)}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!data || !data.verses || !data.verses.length) return null;
-  return { verses: data.verses };
-}
-
-// Full World English Bible (+ deuterocanon) text bundled into the page itself,
-// so a passage is always available even when the artifact sandbox can't reach
-// external APIs (network fetch works when this file is opened locally, but
-// published artifacts sometimes can't reach third-party domains). Sourced
-// from the same public-domain WEB text (via seven1m/open-bibles), footnotes
-// stripped. This is the preferred source for WEB rather than a last resort:
-// it carries paragraph structure that no live provider offers. It also backs
-// every other translation, as the last attempt before a word-count estimate.
+// The whole World English Bible, deuterocanon and wider canon included, bundled
+// into the page from seven1m/open-bibles with footnotes stripped. It is the
+// preferred source for WEB rather than a last resort, carrying paragraph
+// structure no live provider matches, and it backs every other translation as
+// the last attempt before a word-count estimate.
 // Stored gzip-compressed + base64 (raw JSON ~4.6MB -> ~1.9MB embedded) and
 // decompressed once via the browser's native DecompressionStream.
 let EMBEDDED_WEB_PROMISE = null;
@@ -616,31 +547,22 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
   const requested = REQUESTED_VERSION && REQUESTED_VERSION.toUpperCase();
   // Build the ordered list of attempts, dropping any the provider can't serve.
   const attempts = [];
-  const PROVIDERS = {
-    apibible: fetchFromApiBible,
-    helloao: fetchFromHelloAO,
-    bolls: fetchFromBolls,
-    dws: fetchFromDwsCloud
-  };
-  // Most structure first: api.bible (paragraphs, poetry, headings, emphasis),
-  // helloao (poetry lines), bolls (line breaks and emphasis), dws (none).
+  // Most structure first: api.bible marks paragraphs, poetry, headings and
+  // emphasis; bolls marks line breaks and emphasis. Deuterocanon coverage
+  // varies by edition on both, and an edition without a book answers with a
+  // 404 or an empty chapter, which falls through on its own.
   const attempt = (code) => {
     const t = TEXT_TRANSLATIONS[code];
     if (!t) return;
-    for (const source of ["apibible", "helloao", "bolls", "dws"]){
-      // helloao has no Apocrypha at all. api.bible varies by edition (DRA, KJV
-      // and WEB carry it, CSB/AMP/NASB don't), and answers a book it lacks with
-      // a 404, which falls through on its own.
-      if (source === "helloao" && isDeutero) continue;
-      if (t[source]) attempts.push([source, PROVIDERS[source], t[source], t.label]);
+    for (const [source, fn] of [["apibible", fetchFromApiBible], ["bolls", fetchFromBolls]]){
+      if (t[source]) attempts.push([source, fn, t[source], t.label]);
     }
   };
   if (requested && requested !== "WEB") attempt(requested);
-  // The embedded copy outranks the live WEB providers because it is the only
-  // source of prose paragraphs anywhere in the chain: it was built from USFX
-  // <p> markers, while helloao marks poetry lines only and the others mark
-  // nothing. The live WEB attempts stay behind it for the case where the
-  // embedded data can't be decompressed at all.
+  // The embedded copy outranks live WEB because it is the only source of prose
+  // paragraphs that needs no network, and bolls marks none at all. The live WEB
+  // attempts stay behind it for the case where the embedded data can't be
+  // decompressed.
   attempts.push(["embedded", fetchFromEmbedded, null, TEXT_TRANSLATIONS.WEB.label]);
   attempt("WEB");
 
@@ -651,17 +573,15 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
       continue;
     }
     const key = chapterCacheKey(bookId, chapterNum, source, translation);
-    try{
-      const cached = await window.storage.get(key, false);
-      if (cached) return { ...JSON.parse(cached.value), translation: label };
-    }catch(e){ /* no cache yet, fall through */ }
+    const cached = load(key, null);
+    if (cached) return { ...cached, translation: label };
     try{
       const data = await fn(bookId, chapterNum, translation);
       if (data){
-        try{ await window.storage.set(key, JSON.stringify(data), false); }catch(e){}
+        save(key, data);
         return { ...data, translation: label };
       }
-    }catch(e){ /* try next attempt */ }
+    }catch(e){ /* provider unreachable or malformed, try the next attempt */ }
   }
   return null;
 }
@@ -673,58 +593,32 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
   const chData = await fetchChapter(bookId, chapterPointer, isDeutero);
   if (!chData) return null;
 
+  // versePointer is a position in the chapter array, not a verse number: books
+  // with gaps in their numbering (Greek Esther, Song of the Three) would land on
+  // the wrong verse otherwise. Verse numbers are read back off the chosen
+  // verses for anything the reader sees.
   const verses = chData.verses;
   let v = versePointer, sum = 0;
-  const included = [];
   while (v <= verses.length && (sum === 0 || sum + wordCount(verses[v-1].text) < TARGET_MAX_WORDS)){
     sum += wordCount(verses[v-1].text);
-    included.push(v);
     v++;
   }
   const reachedEnd = v > verses.length;
-  const segments = [{ chapter: chapterPointer, verses, from: included[0], to: included[included.length-1] }];
+  const chosen = verses.slice(versePointer - 1, v - 1);
 
   let nextOrderIndex = orderIndex, nextChapter = chapterPointer, nextVerse = v, bookFinished = false;
 
-  if (!ONE_CHAPTER && reachedEnd && sum < TARGET_MIN_WORDS && chapterPointer < totalChapters){
-    const nextCh = await fetchChapter(bookId, chapterPointer + 1, isDeutero);
-    if (nextCh){
-      const verses2 = nextCh.verses;
-      let v2 = 1, sum2 = sum;
-      const included2 = [];
-      while (v2 <= verses2.length && sum2 < TARGET_MIN_WORDS && (sum2 + wordCount(verses2[v2-1].text) < TARGET_MAX_WORDS)){
-        sum2 += wordCount(verses2[v2-1].text);
-        included2.push(v2);
-        v2++;
-      }
-      if (included2.length){
-        segments.push({ chapter: chapterPointer + 1, verses: verses2, from: included2[0], to: included2[included2.length-1] });
-        sum = sum2;
-        const reachedEnd2 = v2 > verses2.length;
-        if (reachedEnd2){
-          if (chapterPointer + 1 >= totalChapters){ bookFinished = true; nextOrderIndex = orderIndex + 1; nextChapter = 1; nextVerse = 1; }
-          else { nextChapter = chapterPointer + 2; nextVerse = 1; }
-        } else {
-          nextChapter = chapterPointer + 1; nextVerse = v2;
-        }
-      } else if (chapterPointer >= totalChapters){
-        bookFinished = true; nextOrderIndex = orderIndex + 1; nextChapter = 1; nextVerse = 1;
-      } else {
-        nextChapter = chapterPointer + 1; nextVerse = 1;
-      }
-    } else if (chapterPointer >= totalChapters){
-      bookFinished = true; nextOrderIndex = orderIndex + 1; nextChapter = 1; nextVerse = 1;
-    } else {
-      nextChapter = chapterPointer + 1; nextVerse = 1;
-    }
-  } else if (reachedEnd){
+  if (reachedEnd){
     if (chapterPointer >= totalChapters){ bookFinished = true; nextOrderIndex = orderIndex + 1; nextChapter = 1; nextVerse = 1; }
     else { nextChapter = chapterPointer + 1; nextVerse = 1; }
   }
 
   return {
-    live: true, name, totalChapters, chapterForProgress: segments[segments.length-1].chapter,
-    segments, sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
+    live: true, name, totalChapters, chapterForProgress: chapterPointer,
+    chapter: chapterPointer, verses: chosen,
+    firstVerse: chosen[0].verse, lastVerse: chosen[chosen.length - 1].verse,
+    wholeChapter: chosen.length === verses.length,
+    sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
     translation: chData.translation
   };
 }
@@ -759,19 +653,15 @@ function buildOffline(orderIndex, startChapter, startPart){
     };
   }
 
-  const avgWords = totalWords / chapters;
-  let ch = startChapter, sum = avgWords;
-  const chosen = [ch]; ch++;
-  while (!ONE_CHAPTER && sum < TARGET_MIN_WORDS && ch <= chapters && (sum + avgWords) < TARGET_MAX_WORDS && !OFFLINE_OVERRIDES[`${name}|${ch}`]){
-    chosen.push(ch); sum += avgWords; ch++;
-  }
+  const sum = totalWords / chapters;
+  const ch = startChapter + 1;
   const nextOrderIndex = ch > chapters ? orderIndex + 1 : orderIndex;
-  const nextChapter = ch > chapters ? 1 : ch;
   return {
     live: false, name, totalChapters: chapters,
-    range: chosen.length === 1 ? `${chosen[0]}` : `${chosen[0]}–${chosen[chosen.length-1]}`,
-    partLabel: null, sum, chapterForProgress: chosen[chosen.length-1],
-    bookFinished: ch > chapters, nextOrderIndex, nextChapter, nextVerse: 1, nextIsPartIndex: false
+    range: `${startChapter}`,
+    partLabel: null, sum, chapterForProgress: startChapter,
+    bookFinished: ch > chapters, nextOrderIndex,
+    nextChapter: ch > chapters ? 1 : ch, nextVerse: 1, nextIsPartIndex: false
   };
 }
 
@@ -788,43 +678,17 @@ function readUrlParams(){
     time: p.has("time") ? parseInt(p.get("time"), 10) : null,
     wpm: p.has("wpm") ? parseInt(p.get("wpm"), 10) : null,
     version: p.has("version") ? p.get("version").trim() : null,
-    // null means "not in the URL", so a stored preference can still apply
-    oneChapter: p.has("oneChapter")
-      ? !["0", "false", "no"].includes(p.get("oneChapter").trim().toLowerCase())
-      : null,
     startDate: (startDate && DATE_RE.test(startDate)) ? startDate : null
   };
 }
-async function getActiveSeed(){
-  try{
-    const res = await window.storage.get(ACTIVE_SEED_KEY, false);
-    if (res) return JSON.parse(res.value);
-  }catch(e){ /* nothing stored, or storage unavailable */ }
-  return generateSeed();
-}
-async function setActiveSeed(seed){
-  try{ await window.storage.set(ACTIVE_SEED_KEY, JSON.stringify(seed), false); }catch(e){}
-}
-async function getActiveSettings(){
-  const defaults = { time: 5, wpm: 180, version: null, oneChapter: true };
-  try{
-    const res = await window.storage.get(ACTIVE_SETTINGS_KEY, false);
-    return res ? { ...defaults, ...JSON.parse(res.value) } : defaults;
-  }catch(e){ return defaults; }
-}
-async function setActiveSettings(time, wpm, version, oneChapter){
-  try{
-    await window.storage.set(ACTIVE_SETTINGS_KEY,
-      JSON.stringify({ time, wpm, version, oneChapter }), false);
-  }catch(e){}
-}
-async function loadState(seed, time, wpm, oneChapter){
-  try{ const res = await window.storage.get(stateKeyFor(seed, time, wpm, oneChapter), false); return res ? JSON.parse(res.value) : defaultState(); }
-  catch(e){ return defaultState(); }
-}
-async function saveState(seed, time, wpm, oneChapter, state){
-  try{ await window.storage.set(stateKeyFor(seed, time, wpm, oneChapter), JSON.stringify(state), false); }catch(e){}
-}
+const getActiveSeed = () => load(ACTIVE_SEED_KEY, null) || generateSeed();
+const setActiveSeed = (seed) => save(ACTIVE_SEED_KEY, seed);
+const getActiveSettings = () =>
+  ({ time: 5, wpm: 180, version: null, ...load(ACTIVE_SETTINGS_KEY, null) });
+const setActiveSettings = (time, wpm, version) =>
+  save(ACTIVE_SETTINGS_KEY, { time, wpm, version });
+const loadState = (seed, time, wpm) => load(stateKeyFor(seed, time, wpm), null) || defaultState();
+const saveState = (seed, time, wpm, state) => save(stateKeyFor(seed, time, wpm), state);
 function estMinutes(words){ return Math.max(1, Math.round(words / WORDS_PER_MINUTE)); }
 
 async function generateReading(cursor, allowLive){
@@ -841,21 +705,10 @@ function referenceRange(result){
   if (!result.live){
     return { book: result.name, label: `Chapter ${result.range}${result.partLabel ? " · " + result.partLabel : ""}`, gwRef: result.range.split(":")[0] };
   }
-  const segs = result.segments;
-  const first = segs[0], last = segs[segs.length-1];
-  const firstWhole = first.from === 1 && first.to === first.verses.length;
-  const lastWhole = last.from === 1 && last.to === last.verses.length;
-  let label, gwRef;
-  if (segs.length === 1){
-    label = firstWhole ? `Chapter ${first.chapter}` : `Chapter ${first.chapter}:${first.from}-${first.to}`;
-    gwRef = firstWhole ? `${first.chapter}` : `${first.chapter}:${first.from}-${first.to}`;
-  } else {
-    const a = firstWhole ? `${first.chapter}` : `${first.chapter}:${first.from}-${first.to}`;
-    const b = lastWhole ? `${last.chapter}` : `${last.chapter}:${last.from}-${last.to}`;
-    label = `Chapters ${a} – ${b}`;
-    gwRef = `${a}-${b}`;
-  }
-  return { book: result.name, label, gwRef };
+  const range = result.wholeChapter
+    ? `${result.chapter}`
+    : `${result.chapter}:${result.firstVerse}-${result.lastVerse}`;
+  return { book: result.name, label: `Chapter ${range}`, gwRef: range };
 }
 
 // Inline emphasis travels through escapeHtml() as control characters, then
@@ -867,12 +720,10 @@ function escapeHtml(s){
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Verse text may carry a leading/embedded "\n\n" (paragraph break) or "\n"
-// (poetry line break) — both the embedded dataset and the live helloao
-// provider encode structure this way. Renders prose as <p> blocks and
-// multi-line verses as a hanging-indent poem block; sources with no
-// structure info (e.g. bible-api.dws-cloud.com) just fall through as one
-// flowing paragraph, same as before.
+// Verse text may carry a leading or embedded "\n\n" (paragraph break) or "\n"
+// (poetry line break); every source encodes structure this way. Renders prose as
+// <p> blocks and multi-line verses as a hanging-indent poem block. A source that
+// marks no structure falls through as one flowing paragraph.
 function renderVerseStream(verses){
   let stream = "";
   for (const vs of verses){
@@ -906,21 +757,23 @@ function renderPassageText(result){
     el.innerHTML = `<p style="font-size:13px;color:var(--ink-soft)">Live text wasn't reachable, so this is an estimate rather than the actual passage. Use "Read online" below for the text.</p>`;
     return;
   }
-  el.innerHTML = result.segments.map(seg => {
-    const verses = seg.verses.slice(seg.from - 1, seg.to);
-    const label = result.segments.length > 1 ? `<div class="chap-label">${result.name} ${seg.chapter}</div>` : "";
-    return label + renderVerseStream(verses);
-  }).join("");
+  el.innerHTML = renderVerseStream(result.verses);
 }
 
 
+// Both version controls come from TEXT_TRANSLATIONS: the settings one offers
+// every code, the "Read online" one only those whose canon has the book in hand.
+const versionOptions = (filter) =>
+  Object.entries(TEXT_TRANSLATIONS)
+    .filter(([, t]) => !filter || t.deutero)
+    .map(([code, t]) => `<option value="${code}">${t.label}</option>`)
+    .join("");
+
 function populateVersionSelect(isDeutero, preferred){
   const sel = document.getElementById("versionSelect");
-  const opts = isDeutero ? VERSIONS_WITH_DEUTERO : VERSIONS_PROTESTANT;
-  sel.innerHTML = opts.map(([code, label]) => `<option value="${code}">${label}</option>`).join("");
-  if (preferred){
-    const match = opts.find(([code]) => code.toLowerCase() === preferred.toLowerCase());
-    if (match) sel.value = match[0];
+  sel.innerHTML = versionOptions(isDeutero);
+  if (preferred && sel.querySelector(`option[value="${preferred.toUpperCase()}"]`)){
+    sel.value = preferred.toUpperCase();
   }
 }
 function updateReadLink(bookName, gwRef){
@@ -954,7 +807,7 @@ function render(todayKey, result){
   document.getElementById("bookProgressFill").style.width = `${pct}%`;
 
   const nextBook = result.bookFinished ? nameForOrderIndex(result.nextOrderIndex)[0] : result.name;
-  const afterBook = result.bookFinished ? nameForOrderIndex(result.nextOrderIndex + 1)[0] : nameForOrderIndex(result.nextOrderIndex + 1)[0];
+  const afterBook = nameForOrderIndex(result.nextOrderIndex + 1)[0];
   document.getElementById("upNext").innerHTML = result.bookFinished
     ? `Finishing <b>${result.name}</b> today. Next up: <b>${nextBook}</b>, then <b>${afterBook}</b>.`
     : `Continuing <b>${result.name}</b> tomorrow. After that: <b>${afterBook}</b>.`;
@@ -996,7 +849,6 @@ function updateShareLink(state){
   url.searchParams.set("time", MAX_MINUTES);
   url.searchParams.set("wpm", WORDS_PER_MINUTE);
   if (REQUESTED_VERSION) url.searchParams.set("version", REQUESTED_VERSION);
-  if (ONE_CHAPTER) url.searchParams.set("oneChapter", "1");
   if (state && state.startDate) url.searchParams.set("startDate", state.startDate);
   document.getElementById("shareLink").value = url.toString();
   try{ history.replaceState(null, "", url.toString()); }catch(e){}
@@ -1009,9 +861,11 @@ async function runPlan(resetFirst){
   document.getElementById("seedInput").value = ACTIVE_SEED;
   document.getElementById("timeInput").value = MAX_MINUTES;
   document.getElementById("wpmInput").value = WORDS_PER_MINUTE;
-  document.getElementById("versionInput").value = REQUESTED_VERSION || "";
+  const versionInput = document.getElementById("versionInput");
+  versionInput.innerHTML = `<option value="">Default (World English Bible)</option>` + versionOptions(false);
+  versionInput.value = (REQUESTED_VERSION || "").toUpperCase();
 
-  let state = resetFirst ? defaultState() : await loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, ONE_CHAPTER);
+  let state = resetFirst ? defaultState() : loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE);
   const today = localDateKey(new Date());
   if (state.startDate === null){
     state.startDate = PENDING_START_DATE || today;
@@ -1042,7 +896,7 @@ async function runPlan(resetFirst){
     }
     state.cursor = cursor;
     state.lastGeneratedDate = today;
-    await saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, ONE_CHAPTER, state);
+    saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, state);
   }
 
   CURRENT_RESULT = result;
@@ -1053,18 +907,15 @@ async function runPlan(resetFirst){
 
 async function init(){
   const urlParams = readUrlParams();
-  ACTIVE_SEED = urlParams.seed || (await getActiveSeed());
-  const activeSettings = await getActiveSettings();
+  ACTIVE_SEED = urlParams.seed || (getActiveSeed());
+  const activeSettings = getActiveSettings();
   MAX_MINUTES = urlParams.time || activeSettings.time || 5;
   WORDS_PER_MINUTE = urlParams.wpm || activeSettings.wpm || 180;
   REQUESTED_VERSION = urlParams.version || activeSettings.version || null;
-  ONE_CHAPTER = urlParams.oneChapter !== null ? urlParams.oneChapter : !!activeSettings.oneChapter;
   PENDING_START_DATE = urlParams.startDate || null;
-  MIN_MINUTES = Math.max(1, MAX_MINUTES - 5);
-  TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
-  await setActiveSeed(ACTIVE_SEED);
-  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION, ONE_CHAPTER);
+  setActiveSeed(ACTIVE_SEED);
+  setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
   await runPlan(false);
 }
 
@@ -1091,13 +942,11 @@ document.getElementById("applySeedBtn").addEventListener("click", async () => {
   const newSeed = document.getElementById("seedInput").value.trim() || generateSeed();
   let newTime = parseInt(document.getElementById("timeInput").value, 10); if (!newTime || newTime < 1) newTime = 5;
   let newWpm = parseInt(document.getElementById("wpmInput").value, 10); if (!newWpm || newWpm < 50) newWpm = 180;
-  const newVersion = document.getElementById("versionInput").value.trim() || null;
+  const newVersion = document.getElementById("versionInput").value || null;
   ACTIVE_SEED = newSeed; MAX_MINUTES = newTime; WORDS_PER_MINUTE = newWpm; REQUESTED_VERSION = newVersion;
-  MIN_MINUTES = Math.max(1, MAX_MINUTES - 5);
-  TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
-  await setActiveSeed(ACTIVE_SEED);
-  await setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION, ONE_CHAPTER);
+  setActiveSeed(ACTIVE_SEED);
+  setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
   document.getElementById("confirmMsg").textContent = `Applied seed "${ACTIVE_SEED}" (${MAX_MINUTES} min, ${WORDS_PER_MINUTE} wpm).`;
   // A manual start-date edit only takes effect on a brand-new track (see runPlan).
   const dateVal = document.getElementById("startDateInput").value;

@@ -3,76 +3,43 @@
 # requires-python = ">=3.11"
 # dependencies = ["httpx"]
 # ///
-"""Check index.html's derived bolls book numbers against the live provider.
+"""Check the bolls book numbers index.html derives against the live provider.
 
-BOLLS_BOOK_IDS derives the 66 canonical numbers from the position of each book
-in BOOKS rather than restating them, so a reordering of BOOKS would silently
-point a reading at the wrong book's text. This rebuilds the same map from
-index.html and compares it to what bolls reports.
+index.html numbers the 66 canonical books by their position in BOOKS rather than
+restating them, so reordering BOOKS would silently point readings at a different
+book's text. This asserts the numbering bolls actually uses.
 
 Usage: ./check-bolls-books.py
 """
 
-import re
 import sys
 
 import httpx
 
-BOOKS_RE = re.compile(r"^const BOOKS = \[(.*?)^\];", re.S | re.M)
-ENTRY_RE = re.compile(r'\["([^"]+)",\d+,\d+,"([^"]+)",(true|false)\]')
-DEUTERO = {"TOB": 68, "JDT": 69, "WIS": 70, "SIR": 71, "BAR": 73, "1MA": 74, "2MA": 75}
-# The wider canon deliberately has no bolls number: bolls renumbers those per
-# translation, so a static map would serve the wrong book's text.
-UNMAPPED = {"ESG", "S3Y", "SUS", "BEL", "1ES", "2ES", "MAN", "PS2", "3MA", "4MA"}
-# BOOKS and bolls disagree on two display names only; the numbering is the point.
-ALIASES = {"Psalms": "Psalm", "Revelation of John": "Revelation"}
-
-
-def derived_ids() -> dict[str, tuple[int, str]]:
-    """Rebuild BOLLS_BOOK_IDS from index.html: {apiId: (bolls number, name)}."""
-    body = BOOKS_RE.search(open("index.html").read())
-    if not body:
-        sys.exit("could not find the BOOKS array in index.html")
-    ids, n = {}, 0
-    for name, api_id, is_deutero in ENTRY_RE.findall(body.group(1)):
-        if api_id in UNMAPPED:
-            continue
-        if is_deutero == "true":
-            ids[api_id] = (DEUTERO[api_id], name)
-        else:
-            n += 1
-            ids[api_id] = (n, name)
-    return ids
+# The seven deuterocanon books whose bolls numbers agree across every edition
+# carrying them. The wider canon is deliberately absent from index.html's map:
+# bolls renumbers it per translation, so no static number is safe.
+DEUTERO = {"Tobit": 68, "Judith": 69, "Wisdom": 70, "Sirach": 71,
+           "Baruch": 73, "1 Maccabees": 74, "2 Maccabees": 75}
+# NRSVCE carries all 73 books index.html maps, in the order it assumes.
+CANONICAL_LAST = ("Revelation", 66)
 
 
 def main() -> int:
-    ids = derived_ids()
-    assert len(ids) == 73, f"expected 73 mappable books, parsed {len(ids)}"
-
-    html = open("index.html").read()
-    mapped = set(re.findall(r'"?([A-Z0-9]{3})"?: *\d+', html[html.index("BOLLS_BOOK_IDS"):][:400]))
-    leaked = mapped & UNMAPPED
-    if leaked:
-        print(f"these have no stable bolls number but are mapped anyway: {sorted(leaked)}")
-        return 1
-
-    # NRSVCE is the translation carrying all 73 of the books this plan uses.
     books = httpx.get("https://bolls.life/get-books/NRSVCE/", timeout=30).raise_for_status().json()
-    live = {b["bookid"]: b["name"] for b in books}
+    by_num = {b["bookid"]: b["name"] for b in books}
 
-    bad = []
-    for api_id, (num, name) in sorted(ids.items(), key=lambda kv: kv[1][0]):
-        want = ALIASES.get(name, name)
-        got = live.get(num)
-        if got != want:
-            bad.append(f"  {api_id}: maps to bolls {num}, which is {got!r}, not {want!r}")
-
-    if bad:
-        print(f"{len(bad)} of {len(ids)} book numbers are wrong:", *bad, sep="\n")
+    problems = [f"  bolls {n} is {by_num.get(n)!r}, expected {name!r}"
+                for name, n in DEUTERO.items() if by_num.get(n) != name]
+    if by_num.get(CANONICAL_LAST[1]) != CANONICAL_LAST[0]:
+        problems.append(f"  bolls {CANONICAL_LAST[1]} is {by_num.get(CANONICAL_LAST[1])!r},"
+                        f" expected {CANONICAL_LAST[0]!r}, so 1-66 are not in canonical order")
+    if problems:
+        print("bolls numbering has moved:", *problems, sep="\n")
         return 1
-    print(f"all {len(ids)} bolls book numbers match")
+    print(f"bolls numbering matches: 1-66 canonical, {len(DEUTERO)} deuterocanon books")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

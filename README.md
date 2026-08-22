@@ -19,7 +19,7 @@ Open the page. It generates a seed, locks today as day 0, and rewrites the
 address bar with everything needed to reproduce that plan:
 
 ```
-https://bible.sibii.space/?seed=cisVXBmDX6Bq&time=5&wpm=180&oneChapter=1&startDate=2026-08-22
+https://bible.sibii.space/?seed=cisVXBmDX6Bq&time=5&wpm=180&startDate=2026-08-22
 ```
 
 Send that URL to someone and they get the identical plan on the identical
@@ -50,9 +50,11 @@ separate plan, tracked independently.
 ### `time`
 
 Maximum minutes per reading. **Default 5.** Combined with `wpm` this sets a word
-budget: a reading targets between `(time - 5)` and `time` minutes of text, with
-the lower bound never dropping below 1 minute. At the default 5 minutes and 180
-wpm that is a ceiling of 900 words.
+ceiling: at the default 5 minutes and 180 wpm, 900 words.
+
+A reading is always one chapter at most. A chapter longer than the ceiling is
+split across days at a verse boundary, and a chapter shorter than it is simply a
+short day. Chapters are never merged to fill the time, so there is no minimum.
 
 ```
 ?time=5      the default
@@ -68,24 +70,6 @@ day, lower it for less.
 ```
 ?wpm=180     the default
 ?wpm=250     faster reader, so more text in the same minutes
-```
-
-### `oneChapter`
-
-Caps each reading at a single chapter. **Default on.** Accepts `0`, `false` or
-`no` to turn it off.
-
-This is an upper bound, not a fixed size. With it on, short chapters are never
-merged to fill the time budget, so a day in Psalms is one psalm even when that
-takes a minute. A chapter longer than the budget still splits across days:
-Psalm 119 stays several readings rather than one very long sitting.
-
-With it off, consecutive short chapters are grouped until the reading reaches
-the lower time bound.
-
-```
-?oneChapter=1     the default: one chapter at most
-?oneChapter=0     group short chapters to fill the time
 ```
 
 ### `startDate`
@@ -120,17 +104,16 @@ Codes that change the displayed text:
 
 | Code | Translation | | Code | Translation |
 |---|---|---|---|---|
-| `WEB` | World English Bible (default) | | `NIV` | New International Version, 1984 |
-| `KJV` | King James Version | | `NLT` | New Living Translation |
-| `ASV` | American Standard Version | | `NKJV` | New King James Version |
-| `BSB` | Berean Standard Bible | | `CSB` | Christian Standard Bible |
-| `DRA` | Douay-Rheims | | `NASB` | New American Standard Bible |
-| `NET` | NET Bible | | `AMP` | Amplified Bible |
-| `YLT` | Young's Literal Translation | | `MSG` | The Message |
-| `BBE` | Bible in Basic English | | `RSV` | Revised Standard Version |
-| `ESV` | English Standard Version | | `NRSVCE` | NRSV Catholic Edition |
-| `CEB` | Common English Bible | | `RSVCE` | RSV Second Catholic Edition |
-| `NABRE` | New American Bible, Revised Edition | | | |
+| `WEB` | World English Bible (default) | | `NKJV` | New King James Version |
+| `KJV` | King James Version | | `CSB` | Christian Standard Bible |
+| `ASV` | American Standard Version | | `NASB` | New American Standard Bible |
+| `BSB` | Berean Standard Bible | | `MSG` | The Message |
+| `DRA` | Douay-Rheims | | `AMP` | Amplified Bible |
+| `NET` | NET Bible | | `RSV` | Revised Standard Version |
+| `YLT` | Young's Literal Translation | | `NRSVCE` | NRSV Catholic Edition |
+| `ESV` | English Standard Version | | `RSVCE` | RSV Second Catholic Edition |
+| `NIV` | New International Version, 1984 | | `NABRE` | New American Bible, Revised Edition |
+| `NLT` | New Living Translation | | `CEB` | Common English Bible |
 
 Deuterocanon coverage varies by translation. Where an edition doesn't carry a
 book, that day's reading falls back to the World English Bible rather than
@@ -152,8 +135,7 @@ not by freshness:
    translator-supplied words shown in italics.
 2. **bolls.life** for the modern copyrighted translations no one else carries.
    Line breaks and inline emphasis, no paragraph marks.
-3. **helloao** and **bible-api.dws-cloud.com** for public-domain editions.
-4. **The embedded copy.** The entire World English Bible, all 83 books, gzipped
+3. **The embedded copy.** The entire World English Bible, all 83 books, gzipped
    into the page itself and decompressed in your browser. It carries full
    paragraph and poetry structure, so it is the *first* choice for WEB rather
    than a last resort, and it means the plan works with no network at all.
@@ -170,8 +152,8 @@ One file, `index.html`, no build step and no dependencies. Open it and it runs.
 
 | Script | Purpose |
 |---|---|
-| `build-embedded.py` | Rebuild or extend the embedded WEB text from the USFX source |
-| `check-bolls-books.py` | Verify the derived bolls book numbers against the live provider |
+| `build-embedded.py` | Rebuild the embedded WEB text from the USFX source |
+| `check-bolls-books.py` | Check the bolls book numbers against the live provider |
 | `set-api-key.py` | Write the api.bible key from `.api-key` into the page |
 
 See `CLAUDE.md` for architecture notes and the reasoning behind the parts that

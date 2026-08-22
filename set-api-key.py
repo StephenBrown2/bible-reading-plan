@@ -15,7 +15,6 @@ Usage: ./set-api-key.py
 import base64
 import pathlib
 import re
-import sys
 
 PAD = "bible-reading-plan"  # must match the same constant in index.html
 LINE = re.compile(r'^const API_BIBLE_KEY = "[^"]*";$', re.M)

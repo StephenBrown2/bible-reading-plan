@@ -2,14 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Add books to the embedded WEB dataset in index.html from the USFX source.
-
-Books already embedded are left byte-for-byte alone. The script that produced
-the original blob is lost, and its break heuristics can't be reproduced exactly:
-this parser agrees with it on 57 of the 73 shipped books and differs on the rest
-only in whether a given gap became a paragraph or a line. Re-deriving all 73 to
-gain nothing but consistency would risk silent changes across 31,000 verses, so
-the merge is additive. Pass --replace to overwrite everything anyway.
+"""Rebuild the embedded WEB dataset in index.html from the USFX source.
 
 Produces {BOOK_ID: [[[verseNum, text], ...], ...]} - a list of chapters, each a
 list of [verse number, text] pairs. Verse numbers are not always contiguous
@@ -21,9 +14,8 @@ Only text between <v> and <ve/> is kept, which drops titles, section headings
 and Psalm superscriptions for free since those sit outside verse ranges.
 Footnotes and cross-references are dropped explicitly, being inside them.
 
-Usage: ./build-embedded.py [--check] [--replace]
-  --check    parse and report, without touching index.html
-  --replace  rebuild every book rather than only the missing ones
+Usage: ./build-embedded.py [--check]
+  --check  parse and report, without touching index.html
 """
 
 import base64
@@ -165,19 +157,9 @@ def main() -> int:
 
     html_path = pathlib.Path("index.html")
     html = html_path.read_text()
-    tag = re.search(r'<script type="text/plain" id="embeddedWebDataGz">([^<]+)</script>', html)
-    if not tag:
+    if 'id="embeddedWebDataGz"' not in html:
         print("could not find the embeddedWebDataGz script tag")
         return 1
-    existing = json.loads(gzip.decompress(base64.b64decode(tag.group(1).strip())))
-
-    if "--replace" not in sys.argv:
-        added = sorted(set(data) - set(existing))
-        merged = dict(existing)
-        merged.update({b: data[b] for b in added})
-        print(f"keeping {len(existing)} embedded books, adding {len(added)}: {added}")
-        data = merged
-
     packed = base64.b64encode(
         gzip.compress(json.dumps(data, separators=(",", ":")).encode(), 9)
     ).decode()

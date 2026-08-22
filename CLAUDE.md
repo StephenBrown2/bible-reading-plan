@@ -62,10 +62,11 @@ Existing stored seeds are untouched: `getActiveSeed()` only generates when
 storage holds nothing.
 
 ### Pacing
-`time` (max minutes, default 5) and `wpm` (words per minute, default 180)
-together set a word-count target: `min = max(1, time - 5)`, `max = time`. A day's
-reading is built by walking chapters/verses until that range is hit, grouping
-short chapters together and splitting long chapters at verse boundaries.
+`time` (max minutes, default 5) and `wpm` (words per minute, default 180) set a
+word ceiling of `time * wpm`. A reading is **one chapter at most**: verses are
+walked until the ceiling is reached, so a chapter longer than the budget splits
+across days at a verse boundary and a short chapter is simply a short day.
+Chapters are never merged, which is why there is no lower bound.
 
 ### State model, the important part
 Progress is not "advance once per app-open." It's anchored to a `startDate`
@@ -75,10 +76,8 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
 - if there's a gap since `lastGeneratedDate`, it walks forward through **every**
   missed day in sequence (not skipping), showing a "Catching up" list, landing on
   today's reading last.
-- Each unique `(seed, time, wpm, oneChapter)` combination is tracked
-  independently. Changing any of the four starts a fresh, separately-tracked
-  plan. The key only gains its `-1ch` suffix when `oneChapter` is on, so plans
-  that predate the flag keep the key they already had.
+- Each unique `(seed, time, wpm)` combination is tracked independently. Changing
+  any of the three starts a fresh, separately-tracked plan.
 - `startDate` is locked in the first time a given combination is
   used. A `startDate` URL param only seeds a *brand-new* track, it can't
   retroactively shift one already in progress.
@@ -87,29 +86,19 @@ This is what lets two people on a shared link land on the same passage on the
 same calendar date without a server. See `runPlan()`.
 
 ### Persistence
-`localStorage`, reached through a small `window.storage` shim near the top of the
-script: `get(key)` returns `{value}` or `null`, `set(key, value)` writes. Every
-call site wraps its call in try/catch, so private browsing and quota-exceeded
-degrade to "nothing persists" rather than breaking.
+`localStorage` through two helpers, `load(key, fallback)` and `save(key, value)`,
+which own the JSON round-trip and the try/catch. Private browsing and a full
+quota both throw, so every call has to tolerate getting the fallback back.
 
 ### URL params (the sync mechanism)
 ```
-?seed=...&time=10&wpm=180&startDate=2026-08-21&version=KJV&oneChapter=1
+?seed=...&time=5&wpm=180&startDate=2026-08-21&version=KJV
 ```
 - `seed`: shuffle seed (any string); generated if absent, see below
 - `time`: max minutes per reading, default 5
 - `wpm`: reading speed, default 180
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
-- `oneChapter`: cap each reading at one chapter, **on by default**
-  (`0`/`false`/`no` turns it off)
 - `version`: optional translation code, serving two unrelated namespaces
-
-`oneChapter` defaults to **on**. It is an upper bound, not a fixed size. It stops short chapters being
-merged to reach the time minimum, so a day can be well under it, but a chapter
-longer than `time` still splits across days: Psalm 119 stays four readings, not
-one 40-minute sitting. It is a global (`ONE_CHAPTER`) read by the two places
-that merge a following chapter, one in `buildLive()` and one in the offline
-estimate.
 
 `version` means two things at once. It selects the "Read online" BibleGateway
 link's translation, where any BibleGateway code works, *and* it picks the
@@ -118,13 +107,16 @@ codes that can do the second job; anything outside it steers the BibleGateway
 link only and the text stays WEB. The text panel's label names the edition
 actually shown, so a code that can't be honored fails visibly.
 
-Adding a code means checking it against each provider first, because their ids
-disagree: helloao is case-sensitive and mostly `eng_*`, dws is lowercase, bolls
-is uppercase and sometimes versioned (`CSB17`, `NIV2011`) or differently
-abbreviated (`DRB`, not `DRA`). Deuterocanon narrows it further: helloao has
-the 66 canonical books only, and a bolls translation without the Apocrypha
-answers a deuterocanon request with an empty chapter rather than an error,
-which falls through to the next attempt on its own.
+Adding a code means checking it against both providers first, because their ids
+disagree: api.bible uses opaque hex ids, bolls is uppercase and sometimes
+versioned (`CSB17`, `NIV2011`) or differently abbreviated (`DRB`, not `DRA`).
+Deuterocanon narrows it further, per edition rather than per provider: an
+edition without the book answers with a 404 or an empty chapter, which falls
+through to the next attempt on its own.
+
+Both `<select>` controls are built from `TEXT_TRANSLATIONS` by
+`versionOptions()`. The settings one offers every code; the "Read online" one
+filters to entries flagged `deutero: true` when the day's book needs it.
 
 The in-app "Shareable link" box (settings panel) regenerates this from the
 *actual stored* `startDate`, so copying it mid-plan still hands a new reader the
@@ -133,18 +125,21 @@ correct anchor.
 ### Text sourcing, ordered by formatting rather than freshness
 Providers are tried in descending order of the structure they preserve, not by
 freshness or preference. Only two sources mark prose paragraphs at all: api.bible
-and the embedded dataset. helloao marks poetry lines, bolls marks line breaks,
-dws-cloud marks nothing, and none of those three can tell a paragraph from a
-line. So **WEB comes from the embedded copy first** (no network, no quota, and
-already paragraph-marked), and everything else tries api.bible before the rest.
+and the embedded dataset. bolls marks line breaks but cannot tell a paragraph
+from a line. So **WEB comes from the embedded copy first** (no network, no quota,
+and already paragraph-marked), and everything else tries api.bible before
+bolls.
 
 1. **Live network**, in order: `api.scripture.api.bible` (real USFM structure:
    paragraphs, poetry, headings, translator-supplied words; key required; only
    some translations licensed to a given key, and deuterocanon coverage varies by
-   edition rather than by provider), then
-   `bible.helloao.org` (poetry lines, 66 books, public-domain editions), then
-   `bolls.life` (line breaks and inline emphasis), then
-   `bible-api.dws-cloud.com` (nothing). See `fetchChapter()`.
+   edition rather than by provider), then `bolls.life` (line breaks and inline
+   emphasis, and the sole source for the copyrighted translations api.bible is
+   not licensed for). See `fetchChapter()`.
+
+   Two providers, not more: a third only earns its place if it is the sole
+   source for a translation worth having, since anything that marks no
+   paragraphs sits permanently behind these two anyway.
 
    api.bible's JSON gives USFM para styles: `p`/`m`/`li` prose, `q*` poetry,
    `s*`/`r`/`d` headings, `b` blank line, and char style `add` for words the
@@ -156,8 +151,7 @@ already paragraph-marked), and everything else tries api.bible before the rest.
    paragraph.
 
    Everything a provider marks is kept, footnote markers excepted, since the
-   embedded dataset strips those at build time and helloao's simple format never
-   sends them. From bolls that means `<br>` becomes the renderer's `\n`, and
+   embedded dataset strips those at build time. From bolls that means `<br>` becomes the renderer's `\n`, and
    `<i>`/`<e>`/`<b>` (translator-supplied words in NKJV and KJV, AMP's bracketed
    amplifications, CSB's OT quotations) survive `escapeHtml()` as control
    characters and come back as `<em>`/`<strong>` in `renderVerseStream()`.
@@ -170,18 +164,18 @@ already paragraph-marked), and everything else tries api.bible before the rest.
    differ the formatted one wins for local display: `NIV` maps to bolls' 1984
    edition, which marks poetry lines and headings, rather than its `NIV2011`,
    which marks nothing. The label names the edition so the swap is visible. What
-   the BibleGateway link opens is a separate question and not ours to control. That ordering makes bolls the
-   effective primary for every translation helloao doesn't carry, which is all
-   the copyrighted ones. Worth knowing: bolls serves those with no licensing
-   story visible, so it may be redistributing without permission. helloao,
-   dws-cloud, and the embedded copy are unambiguously public domain, and the
-   plan still works if bolls goes away, just without the modern translations.
+   the BibleGateway link opens is a separate question and not ours to control.
+
+   Worth knowing: bolls serves the copyrighted translations with no licensing
+   story visible, so it may be redistributing without permission. api.bible and
+   the embedded copy are unambiguously licensed, and the plan still works if
+   bolls goes away, just without the modern translations.
 
    bolls addresses books by number rather than USFM id. `BOLLS_BOOK_IDS` derives
    the 66 canonical numbers from each book's position in `BOOKS` instead of
    restating them, so reordering `BOOKS` would silently point readings at the
-   wrong book. `./check-bolls-books.py` verifies the whole map against the live
-   provider. Run it after touching `BOOKS`.
+   wrong book. `./check-bolls-books.py` asserts the numbering bolls actually
+   uses. Run it after touching `BOOKS`.
 2. **Embedded dataset**: the entire WEB Bible + deuterocanon, bundled in the page
    as gzip+base64 text, decompressed client-side via the native
    `DecompressionStream('gzip')` API (no library). Best-formatted source and the
@@ -200,13 +194,12 @@ already paragraph-marked), and everything else tries api.bible before the rest.
    average-words-per-chapter table (`BOOKS` array) plus four hardcoded
    known-long-chapter overrides (Psalm 119, 1 Kings 8, Numbers 7,
    Deuteronomy 28). Defensive code, should essentially never trigger now that
-   tier 2 covers all 73 books.
+   tier 2 covers all 83 books.
 
 `renderVerseStream()` splits on the embedded `\n\n`/`\n` markers to produce real
 `<p>` paragraphs for prose and hanging-indent `<div class="poem-line">` blocks
-for poetry. Sources with no structure info (tier 3, and tier 1's dws-cloud
-specifically) render as one flowing paragraph. That's graceful degradation, not a
-bug.
+for poetry. A source with no structure info renders as one flowing paragraph.
+That's graceful degradation, not a bug.
 
 ### The wider canon and its fallbacks
 The 10 wider-canon books deliberately have **no bolls number**. bolls renumbers
@@ -223,21 +216,11 @@ while its KJV and RV have the Daniel additions but not 3-4 Maccabees or Psalm
 83, so every book is covered offline regardless.
 
 ### Regenerating the embedded dataset
-`./build-embedded.py` does this. It is **additive by default**: books already
-embedded are left byte-for-byte alone and only missing ones are parsed in. The
-original build script is lost and its break heuristics can't be reproduced
-exactly (this parser agrees with the shipped data on 57 of 73 books, differing
-only on whether a given gap became a paragraph or a line), so re-deriving all of
-them would risk silent changes across 31,000 verses for no gain. `--replace`
-overrides that; `--check` parses and reports without writing.
-
-The blob has since been rebuilt with `--replace`, so everything now comes from
-this parser. The delta from the original was 28 verses: 20 where the old script
-left a stray space behind a removed footnote ("two assaria coins ?", now
-"coins?") and 8 where a gap became a paragraph rather than a line. The break
-rule is that the strongest break in a gap wins, which is what makes prose
-resuming after poetry (Judges 5:31) a paragraph, and `<b/>` is ignored because
-the `<p>` or `<q>` on either side already describes the gap.
+`./build-embedded.py` rebuilds every book from the USFX source; `--check` parses
+and reports without writing. The break rule is that the strongest break in a gap
+wins, which is what makes prose resuming after poetry (Judges 5:31) a paragraph,
+and `<b/>` is ignored because the `<p>` or `<q>` on either side already
+describes the gap.
 
 The manual recipe, for reference: fetch `eng-web.usfx.xml` from
 `seven1m/open-bibles`, strip `<f>`/`<x>`/`<d>` blocks (footnotes, cross-refs,
@@ -247,7 +230,7 @@ Psalm superscriptions, all dropped since none are rendered anywhere), walk
 `[verseNum, text]` pairs; verse numbers aren't always contiguous, e.g. Sirach, so
 don't assume `index = verse - 1`), track `<p>`/`<q>`/`<b/>` as paragraph/line
 markers per the scheme above, merge `LJE` into `BAR[5]` (0-indexed chapter 6),
-filter to the 73 needed book IDs, `json.dumps(..., separators=(',',':'))`,
+filter to the 83 needed book IDs, `json.dumps(..., separators=(',',':'))`,
 `gzip.compress(..., 9)`, `base64.b64encode`, drop into the
 `<script type="text/plain" id="embeddedWebDataGz">` tag before `</body>`.
 
@@ -271,7 +254,8 @@ come from bolls.
 
 Deuterocanon on api.bible is per edition, not per provider, and the editions that
 carry it are all public domain, so they cost nothing against the plan's
-copyrighted-translation slots: DRA is exactly the 73 books this plan uses, KJV
+copyrighted-translation slots: DRA is exactly the 73 canonical and deuterocanon
+books, KJV
 and RV 1885 have 80, and several WEB editions have 73 to 81. CSB, AMP and
 NASB1995 are 66 only. An edition that lacks a book answers with a 404, which
 falls through to the next provider on its own, so no per-edition book list is
