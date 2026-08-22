@@ -599,7 +599,10 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
     const t = TEXT_TRANSLATIONS[code];
     if (!t) return;
     for (const source of ["apibible", "helloao", "bolls", "dws"]){
-      if ((source === "helloao" || source === "apibible") && isDeutero) continue;
+      // helloao has no Apocrypha at all. api.bible varies by edition (DRA, KJV
+      // and WEB carry it, CSB/AMP/NASB don't), and answers a book it lacks with
+      // a 404, which falls through on its own.
+      if (source === "helloao" && isDeutero) continue;
       if (t[source]) attempts.push([source, PROVIDERS[source], t[source], t.label]);
     }
   };

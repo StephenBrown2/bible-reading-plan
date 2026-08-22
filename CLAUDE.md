@@ -15,7 +15,15 @@ Live at <https://bible.sibii.space> (GitHub Pages, `StephenBrown2/bible-reading-
 public because Pages on a private repo needs a paid plan. Pages only auto-serves
 `index.html` at the domain root, so the file has to keep that name.
 
-Version control is **jj**, not git. See the `jujutsu` skill.
+## Skills to use here
+
+- **`/jujutsu`** before any version-control operation. This repo is jj, not git.
+  Raw git commands can corrupt jj state, and the skill covers the parts that
+  differ most: bookmarks don't auto-advance, the working copy is itself a commit,
+  and interactive commands hang an agent. Load it even for something as small as
+  checking status.
+- **`/ponytail`** for code changes. This is one HTML file with no build step and
+  no dependencies, and it should stay that way.
 
 ## Maintaining this file
 
@@ -104,8 +112,9 @@ line. So **WEB comes from the embedded copy first** (no network, no quota, and
 already paragraph-marked), and everything else tries api.bible before the rest.
 
 1. **Live network**, in order: `api.scripture.api.bible` (real USFM structure:
-   paragraphs, poetry, headings, translator-supplied words; 66 canonical books;
-   key required; only some translations licensed to a given key), then
+   paragraphs, poetry, headings, translator-supplied words; key required; only
+   some translations licensed to a given key, and deuterocanon coverage varies by
+   edition rather than by provider), then
    `bible.helloao.org` (poetry lines, 66 books, public-domain editions), then
    `bolls.life` (line breaks and inline emphasis), then
    `bible-api.dws-cloud.com` (nothing). See `fetchChapter()`.
@@ -203,6 +212,14 @@ That key's licensing reaches CSB, AMP, NASB1995, ASV, KJV, DRA, WEB and a number
 of other public-domain editions. ESV, NIV, NLT, NKJV, NRSVCE, NABRE and RSV are
 *not* included: they need separate publisher approval, and until that exists they
 come from bolls.
+
+Deuterocanon on api.bible is per edition, not per provider, and the editions that
+carry it are all public domain, so they cost nothing against the plan's
+copyrighted-translation slots: DRA is exactly the 73 books this plan uses, KJV
+and RV 1885 have 80, and several WEB editions have 73 to 81. CSB, AMP and
+NASB1995 are 66 only. An edition that lacks a book answers with a 404, which
+falls through to the next provider on its own, so no per-edition book list is
+maintained here.
 
 ## Things NOT to do
 
