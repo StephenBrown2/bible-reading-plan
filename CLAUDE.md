@@ -90,6 +90,14 @@ same calendar date without a server. See `runPlan()`.
 which own the JSON round-trip and the try/catch. Private browsing and a full
 quota both throw, so every call has to tolerate getting the fallback back.
 
+Chapters fetched from a live provider are cached, and `pruneChapterCache()`
+drops everything but the current chapter after each render. A reading is one
+chapter, so yesterday's can never be read again; without the prune a year of
+daily reading would put roughly 2.7MB of chapter JSON against a 5MB origin
+quota, and once `save()` starts throwing the cache would silently never fill
+again. The embedded text is never cached: it is decompressed into memory once
+and its tier returns before the caching code.
+
 ### URL params (the sync mechanism)
 ```
 ?seed=...&time=5&wpm=180&startDate=2026-08-21&version=KJV

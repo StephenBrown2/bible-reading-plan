@@ -143,7 +143,8 @@ not by freshness:
 ## Privacy
 
 There is no backend and no analytics. Your seed, settings and progress live in
-your browser's `localStorage` and go nowhere else. The only outbound requests
+your browser's `localStorage` and go nowhere else. The current chapter is cached
+there too, and older ones are dropped as the plan moves on. The only outbound requests
 are for passage text, and even those stop if you read the WEB translation.
 
 ## Development

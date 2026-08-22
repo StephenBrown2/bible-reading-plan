@@ -225,7 +225,21 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Source is part of the key: two providers can use the same translation id but
 // return different amounts of structure, so their copies must not share a
 // cache entry.
-const chapterCacheKey = (id, ch, source, translation) => `bible-chapter-cache::${id}:${ch}:${source}:${translation}`;
+const CHAPTER_CACHE_PREFIX = "bible-chapter-cache::";
+const chapterCacheKey = (id, ch, source, translation) => `${CHAPTER_CACHE_PREFIX}${id}:${ch}:${source}:${translation}`;
+
+// A reading is one chapter, so yesterday's chapter can never be read again.
+// Keeping only today's turns an unbounded cache into a couple of entries: at
+// ~7KB a chapter, a year of daily reading would otherwise fill the 5MB origin
+// quota, at which point save() starts throwing and caching stops for good.
+function pruneChapterCache(bookId, chapterNum){
+  const keep = `${CHAPTER_CACHE_PREFIX}${bookId}:${chapterNum}:`;
+  try{
+    for (const key of Object.keys(localStorage)){
+      if (key.startsWith(CHAPTER_CACHE_PREFIX) && !key.startsWith(keep)) localStorage.removeItem(key);
+    }
+  }catch(e){ /* storage unavailable; nothing cached to prune either */ }
+}
 const BOLLS_BASE = "https://bolls.life";
 const API_BIBLE_BASE = "https://api.scripture.api.bible/v1";
 // api.bible needs a key, and this page is public, so the key is XOR'd against
@@ -615,7 +629,7 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
 
   return {
     live: true, name, totalChapters, chapterForProgress: chapterPointer,
-    chapter: chapterPointer, verses: chosen,
+    bookId, chapter: chapterPointer, verses: chosen,
     firstVerse: chosen[0].verse, lastVerse: chosen[chosen.length - 1].verse,
     wholeChapter: chosen.length === verses.length,
     sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
@@ -900,6 +914,7 @@ async function runPlan(resetFirst){
   }
 
   CURRENT_RESULT = result;
+  if (result.live) pruneChapterCache(result.bookId, result.chapter);
   render(today, result);
   renderCatchUp(catchUpEntries);
   updateShareLink(state);
