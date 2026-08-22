@@ -113,9 +113,11 @@ correct anchor.
    any `<br>` renders as poetry throughout, including prose; and it prepends
    section headings to a verse ahead of a `<br>`, indistinguishable from a first
    line of poetry, so headings stay part of the verse text rather than being
-   guessed at. Editions also differ in how much they mark: `NIV2011` (what `NIV`
-   maps to, matching what BibleGateway means by NIV) carries no line breaks at
-   all, while bolls' 1984 `NIV` does. That ordering makes bolls the
+   guessed at. Editions also differ in how much they mark, and where they
+   differ the formatted one wins for local display: `NIV` maps to bolls' 1984
+   edition, which marks poetry lines and headings, rather than its `NIV2011`,
+   which marks nothing. The label names the edition so the swap is visible. What
+   the BibleGateway link opens is a separate question and not ours to control. That ordering makes bolls the
    effective primary for every translation helloao doesn't carry, which is all
    the copyrighted ones. Worth knowing: bolls serves those with no licensing
    story visible, so it may be redistributing without permission. helloao,

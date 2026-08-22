@@ -248,7 +248,10 @@ const TEXT_TRANSLATIONS = {
   YLT:    { helloao: "eng_ylt", bolls: "YLT",     label: "Young's Literal Translation" },
   BBE:    { helloao: "eng_bbe", label: "Bible in Basic English" },
   ESV:    { bolls: "ESV",       label: "English Standard Version" },
-  NIV:    { bolls: "NIV2011",   label: "New International Version" },
+  // bolls' 1984 NIV marks poetry lines and section headings; its NIV2011 marks
+  // nothing at all. The displayed text takes the formatted edition, which the
+  // label names; the BibleGateway link is unaffected and still opens the NIV.
+  NIV:    { bolls: "NIV",       label: "New International Version, 1984" },
   NLT:    { bolls: "NLT",       label: "New Living Translation" },
   NKJV:   { bolls: "NKJV",      label: "New King James Version" },
   CSB:    { bolls: "CSB17",     label: "Christian Standard Bible" },
