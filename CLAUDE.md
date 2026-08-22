@@ -76,27 +76,42 @@ degrade to "nothing persists" rather than breaking.
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
 - `version`: optional translation code, serving two unrelated namespaces
 
-`version` is the one param that means two things at once. It selects the
-"Read online" BibleGateway link's translation, where any BibleGateway code
-works (ESV, CSB, NIV...), *and* it's tried against the text providers, which
-carry only public-domain editions. `TEXT_TRANSLATIONS` is the list of codes
-that can actually change the displayed text; anything outside it steers the
-BibleGateway link only and the text stays WEB. The text panel's label names
-the edition actually shown so that fallback isn't silent. Adding a code to
-`TEXT_TRANSLATIONS` means checking it against both providers first: helloao
-ids are case-sensitive and mostly `eng_*`, dws ids are lowercase, and helloao
-carries the 66 canonical books only, so a deuterocanon chapter can only use a
-code with a `dws` id.
+`version` means two things at once. It selects the "Read online" BibleGateway
+link's translation, where any BibleGateway code works, *and* it picks the
+edition the passage text is fetched in. `TEXT_TRANSLATIONS` is the list of
+codes that can do the second job; anything outside it steers the BibleGateway
+link only and the text stays WEB. The text panel's label names the edition
+actually shown, so a code that can't be honored fails visibly.
+
+Adding a code means checking it against each provider first, because their ids
+disagree: helloao is case-sensitive and mostly `eng_*`, dws is lowercase, bolls
+is uppercase and sometimes versioned (`CSB17`, `NIV2011`) or differently
+abbreviated (`DRB`, not `DRA`). Deuterocanon narrows it further: helloao has
+the 66 canonical books only, and a bolls translation without the Apocrypha
+answers a deuterocanon request with an empty chapter rather than an error,
+which falls through to the next attempt on its own.
 
 The in-app "Shareable link" box (settings panel) regenerates this from the
 *actual stored* `startDate`, so copying it mid-plan still hands a new reader the
 correct anchor.
 
 ### Text sourcing (three tiers, in order)
-1. **Live network**: `bible.helloao.org` (WEB, canonical books only) tried first,
-   `bible-api.dws-cloud.com` (WEB, has deuterocanon) as fallback. See
-   `fetchChapter()`. Confirmed working on the live site, so this is the normal
-   path most days.
+1. **Live network**, ordered by how much structure the provider preserves rather
+   than by preference: `bible.helloao.org` (paragraphs and poetry lines, 66
+   canonical books, public-domain editions only), then `bolls.life` (poetry
+   lines via `<br>`, no paragraphs), then `bible-api.dws-cloud.com` (no
+   structure at all). See `fetchChapter()`. That ordering makes bolls the
+   effective primary for every translation helloao doesn't carry, which is all
+   the copyrighted ones. Worth knowing: bolls serves those with no licensing
+   story visible, so it may be redistributing without permission. helloao,
+   dws-cloud, and the embedded copy are unambiguously public domain, and the
+   plan still works if bolls goes away, just without the modern translations.
+
+   bolls addresses books by number rather than USFM id. `BOLLS_BOOK_IDS` derives
+   the 66 canonical numbers from each book's position in `BOOKS` instead of
+   restating them, so reordering `BOOKS` would silently point readings at the
+   wrong book. `./check-bolls-books.py` verifies the whole map against the live
+   provider. Run it after touching `BOOKS`.
 2. **Embedded dataset**: the entire WEB Bible + deuterocanon, bundled in the page
    as gzip+base64 text, decompressed client-side via the native
    `DecompressionStream('gzip')` API (no library). Guaranteed fallback,

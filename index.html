@@ -216,25 +216,50 @@ const stateKeyFor = (seed, time, wpm) => `bible-plan-state::${seed}::${time}-${w
 const LIVE_CATCHUP_LIMIT = 30;   // only hit the network for the most recent N missed days
 const CATCHUP_DISPLAY_LIMIT = 20; // only list the most recent N missed days in the UI
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const chapterCacheKey = (id, ch, translation) => `bible-chapter-cache::${id}:${ch}:${translation}`;
+// Source is part of the key: providers reuse each other's translation ids (both
+// helloao and bolls call the Berean Standard Bible "BSB") but return different
+// amounts of structure, so their copies must not share a cache entry.
+const chapterCacheKey = (id, ch, source, translation) => `bible-chapter-cache::${id}:${ch}:${source}:${translation}`;
 const DWS_BASE = "https://bible-api.dws-cloud.com/v1";
 const HELLOAO_BASE = "https://bible.helloao.org/api";
-// Translation codes ?version= can actually change the displayed text with.
-// The "Read online" dropdown further down uses BibleGateway codes (ESV, CSB,
-// NIV...), which are copyrighted and carried by neither text provider, so a
-// ?version= naming one of those still steers the BibleGateway link but leaves
-// the text as WEB. Keys are what the URL uses; values are the per-provider ids.
-// helloao carries the 66 canonical books only, so a deuterocanon chapter can
-// only use a code with a `dws` id.
+const BOLLS_BASE = "https://bolls.life";
+// Translation codes ?version= can change the displayed text with. Keys are what
+// the URL uses (matching the "Read online" BibleGateway codes where both carry
+// the same edition); values are the per-provider ids, which differ in case and
+// spelling per provider and have to be checked against each one before being
+// added here. A code with no entry steers the BibleGateway link only and leaves
+// the text as WEB.
+//
+// Providers are tried in descending order of how much structure they preserve:
+// helloao gives paragraphs and poetry lines, bolls gives poetry lines only, dws
+// gives none. So bolls is the effective primary for everything helloao doesn't
+// carry, which is every copyrighted translation.
+//
+// Deuterocanon: helloao has the 66 canonical books only, and a bolls
+// translation without the Apocrypha answers a deuterocanon request with an
+// empty chapter, which falls through to the next attempt on its own.
 const TEXT_TRANSLATIONS = {
-  WEB: { helloao: "ENGWEBP", dws: "web", label: "World English Bible" },
-  KJV: { helloao: "eng_kjv", dws: "kjv", label: "King James Version" },
-  ASV: { helloao: "eng_asv", label: "American Standard Version" },
-  BSB: { helloao: "BSB", label: "Berean Standard Bible" },
-  DRA: { helloao: "eng_dra", label: "Douay-Rheims" },
-  NET: { helloao: "eng_net", label: "NET Bible" },
-  YLT: { helloao: "eng_ylt", label: "Young's Literal Translation" },
-  BBE: { helloao: "eng_bbe", label: "Bible in Basic English" }
+  WEB:    { helloao: "ENGWEBP", bolls: "WEB",     dws: "web", label: "World English Bible" },
+  KJV:    { helloao: "eng_kjv", bolls: "KJV",     dws: "kjv", label: "King James Version" },
+  ASV:    { helloao: "eng_asv", bolls: "ASV",     label: "American Standard Version" },
+  BSB:    { helloao: "BSB",     bolls: "BSB",     label: "Berean Standard Bible" },
+  DRA:    { helloao: "eng_dra", bolls: "DRB",     label: "Douay-Rheims" },
+  NET:    { helloao: "eng_net", bolls: "NET",     label: "NET Bible" },
+  YLT:    { helloao: "eng_ylt", bolls: "YLT",     label: "Young's Literal Translation" },
+  BBE:    { helloao: "eng_bbe", label: "Bible in Basic English" },
+  ESV:    { bolls: "ESV",       label: "English Standard Version" },
+  NIV:    { bolls: "NIV2011",   label: "New International Version" },
+  NLT:    { bolls: "NLT",       label: "New Living Translation" },
+  NKJV:   { bolls: "NKJV",      label: "New King James Version" },
+  CSB:    { bolls: "CSB17",     label: "Christian Standard Bible" },
+  NASB:   { bolls: "NASB",      label: "New American Standard Bible" },
+  MSG:    { bolls: "MSG",       label: "The Message" },
+  AMP:    { bolls: "AMP",       label: "Amplified Bible" },
+  RSV:    { bolls: "RSV",       label: "Revised Standard Version" },
+  NRSVCE: { bolls: "NRSVCE",    label: "NRSV Catholic Edition" },
+  RSVCE:  { bolls: "RSV2CE",    label: "RSV Second Catholic Edition" },
+  NABRE:  { bolls: "NABRE",     label: "New American Bible, Revised Edition" },
+  CEB:    { bolls: "CEB",       label: "Common English Bible" }
 };
 
 // [name, chapters, approx total word count (fallback only), apiId, isDeutero]
@@ -265,6 +290,19 @@ const BOOKS = [
 ["2 Peter",3,1099,"2PE",false],["1 John",5,2141,"1JN",false],["2 John",1,245,"2JN",false],
 ["3 John",1,219,"3JN",false],["Jude",1,461,"JUD",false],["Revelation",22,9852,"REV",false]
 ];
+
+// bolls addresses books by number, not USFM id: 1-66 in canonical order, then
+// fixed numbers for the deuterocanon. BOOKS keeps the 66 in canonical order
+// (with the deuterocanon interleaved in Catholic order), so the canonical
+// numbers are derived from it rather than restated. check-bolls-books.py
+// verifies the whole map against the live provider.
+const BOLLS_BOOK_IDS = (() => {
+  const ids = { TOB: 68, JDT: 69, WIS: 70, SIR: 71, BAR: 73, "1MA": 74, "2MA": 75 };
+  let n = 0;
+  for (const [, , , apiId, isDeutero] of BOOKS) if (!isDeutero) ids[apiId] = ++n;
+  return ids;
+})();
+
 
 // Offline fallback for the four well-documented outlier chapters, used only
 // if the live API can't be reached. Everything else falls back to the book
@@ -368,6 +406,33 @@ async function fetchFromHelloAO(bookId, chapterNum, translation){
   if (!verses.length) return null;
   return { verses };
 }
+// bolls returns verse text as small HTML fragments: <br> for poetry line breaks,
+// <sup> for footnote markers, <i>/<b> for supplied or emphasised words. Keep the
+// line breaks as the "\n" the renderer expects, drop the footnote markers, and
+// let DOMParser flatten the rest (it neither runs scripts nor loads resources,
+// unlike assigning to innerHTML). bolls marks no paragraph breaks, so a passage
+// carrying any <br> renders as poetry throughout, which is where bolls uses them.
+function bollsVerseText(html){
+  const src = String(html || "")
+    .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n");
+  const text = new DOMParser().parseFromString(src, "text/html").body.textContent;
+  return text.replace(/[^\S\n]+/g, " ").replace(/ *\n */g, "\n").trim();
+}
+async function fetchFromBolls(bookId, chapterNum, translation){
+  const num = BOLLS_BOOK_IDS[bookId];
+  if (!num) return null;
+  const res = await fetch(`${BOLLS_BASE}/get-chapter/${translation}/${num}/${chapterNum}/`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  // A translation without the Apocrypha answers a deuterocanon book with [].
+  if (!Array.isArray(data) || !data.length) return null;
+  const verses = data
+    .map(v => ({ verse: v.verse, text: bollsVerseText(v.text) }))
+    .filter(v => v.text);
+  if (!verses.length) return null;
+  return { verses };
+}
 async function fetchFromDwsCloud(bookId, chapterNum, translation){
   const res = await fetch(`${DWS_BASE}/chapters/${bookId}/${chapterNum}?translation=${encodeURIComponent(translation)}`);
   if (!res.ok) return null;
@@ -426,17 +491,22 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
   const requested = REQUESTED_VERSION && REQUESTED_VERSION.toUpperCase();
   // Build the ordered list of attempts, dropping any the provider can't serve.
   const attempts = [];
-  const attempt = (source, fn, code) => {
-    const t = TEXT_TRANSLATIONS[code];
-    const id = t && (source === "helloao" ? t.helloao : t.dws);
-    if (id) attempts.push([source, fn, id, t.label]);
+  const PROVIDERS = {
+    helloao: fetchFromHelloAO,
+    bolls: fetchFromBolls,
+    dws: fetchFromDwsCloud
   };
-  if (requested){
-    if (!isDeutero) attempt("helloao", fetchFromHelloAO, requested);
-    attempt("dws", fetchFromDwsCloud, requested);
-  }
-  if (!isDeutero) attempt("helloao", fetchFromHelloAO, "WEB");
-  attempt("dws", fetchFromDwsCloud, "WEB");
+  // Most structure first: helloao (paragraphs + poetry), bolls (poetry), dws (none).
+  const attempt = (code) => {
+    const t = TEXT_TRANSLATIONS[code];
+    if (!t) return;
+    for (const source of ["helloao", "bolls", "dws"]){
+      if (source === "helloao" && isDeutero) continue;
+      if (t[source]) attempts.push([source, PROVIDERS[source], t[source], t.label]);
+    }
+  };
+  if (requested) attempt(requested);
+  attempt("WEB");
   attempts.push(["embedded", fetchFromEmbedded, null, TEXT_TRANSLATIONS.WEB.label]);
 
   for (const [source, fn, translation, label] of attempts){
@@ -445,7 +515,7 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
       if (data) return { ...data, translation: label };
       continue;
     }
-    const key = chapterCacheKey(bookId, chapterNum, translation);
+    const key = chapterCacheKey(bookId, chapterNum, source, translation);
     try{
       const cached = await window.storage.get(key, false);
       if (cached) return { ...JSON.parse(cached.value), translation: label };
