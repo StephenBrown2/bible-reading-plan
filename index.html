@@ -197,6 +197,13 @@
 </div>
 
 <script>
+// localStorage-backed stand-in for the Claude-artifact window.storage API this
+// file was originally written against. Same {value} get shape; the trailing
+// shared-flag argument is ignored. All call sites already try/catch.
+window.storage = {
+  get(key){ const v = localStorage.getItem(key); return v === null ? null : { value: v }; },
+  set(key, value){ localStorage.setItem(key, value); }
+};
 let WORDS_PER_MINUTE = 180;
 let MIN_MINUTES = 5, MAX_MINUTES = 10;
 let TARGET_MIN_WORDS = MIN_MINUTES * WORDS_PER_MINUTE;
