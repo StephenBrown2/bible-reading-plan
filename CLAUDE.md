@@ -40,8 +40,13 @@ for a *current* choice is not history, keep that.
 ## Architecture
 
 ### Book order
-73 books (66 canonical + 7 deuterocanon: Tobit, Judith, Wisdom, Sirach, Baruch,
-1-2 Maccabees) shuffled with a seeded `mulberry32` PRNG. Same seed string means
+83 books shuffled with a seeded `mulberry32` PRNG: the 66 canonical, the 7
+deuterocanon (Tobit, Judith, Wisdom, Sirach, Baruch, 1-2 Maccabees), and the
+wider canon (Greek Esther, Song of the Three, Susanna, Bel and the Dragon,
+1-2 Esdras, Prayer of Manasseh, Psalm 151, 3-4 Maccabees). That last group is
+the WEB Apocrypha as published. It counts as 83 rather than the 81 an api.bible
+edition reports because the source splits the Greek Daniel additions into three
+books where api.bible's WEB carries them merged as `DAG`. Same seed string means
 the same order, always. One explicit rule: if a shuffle happens to land Matthew
 first, it's swapped with the second book (`shuffledOrder()`).
 
@@ -181,9 +186,34 @@ for poetry. Sources with no structure info (tier 3, and tier 1's dws-cloud
 specifically) render as one flowing paragraph. That's graceful degradation, not a
 bug.
 
+### The wider canon and its fallbacks
+The 10 wider-canon books deliberately have **no bolls number**. bolls renumbers
+that part of the canon per translation (76 is the Prayer of Manasseh in its KJV
+and 3 Maccabees in its LXXE), and a wrong number there would serve a different
+book's text, which is the worst failure this app can have. They skip bolls and
+use api.bible or the embedded copy, both of which address books by USFM id.
+`check-bolls-books.py` fails if one of them ever acquires a number.
+
+api.bible coverage is per edition: its WEB has Greek Esther, 1-2 Esdras, Prayer
+of Manasseh, 3-4 Maccabees and Psalm 151 but not the three Daniel additions,
+while its KJV and RV have the Daniel additions but not 3-4 Maccabees or Psalm
+151. Anything an edition lacks falls through to the embedded copy, which has all
+83, so every book is covered offline regardless.
+
 ### Regenerating the embedded dataset
-The build scripts that produced the embedded blob were run locally and aren't
-committed. If it ever needs regenerating: fetch `eng-web.usfx.xml` from
+`./build-embedded.py` does this. It is **additive by default**: books already
+embedded are left byte-for-byte alone and only missing ones are parsed in. The
+original build script is lost and its break heuristics can't be reproduced
+exactly (this parser agrees with the shipped data on 57 of 73 books, differing
+only on whether a given gap became a paragraph or a line), so re-deriving all of
+them would risk silent changes across 31,000 verses for no gain. `--replace`
+overrides that; `--check` parses and reports without writing.
+
+One known cosmetic difference if you ever do replace: the original left a stray
+space where it removed a footnote, giving "sold for two assaria coins ?". This
+parser joins them correctly. Not worth a full rebuild on its own.
+
+The manual recipe, for reference: fetch `eng-web.usfx.xml` from
 `seven1m/open-bibles`, strip `<f>`/`<x>`/`<d>` blocks (footnotes, cross-refs,
 Psalm superscriptions, all dropped since none are rendered anywhere), walk
 `<book>`/`<c>`/`<v>`/`<ve>` tags to build
