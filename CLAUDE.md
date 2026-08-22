@@ -50,8 +50,19 @@ books where api.bible's WEB carries them merged as `DAG`. Same seed string means
 the same order, always. One explicit rule: if a shuffle happens to land Matthew
 first, it's swapped with the second book (`shuffledOrder()`).
 
+### Seeds
+There is no default seed. A visitor with nothing stored gets a 12-character
+base58 seed from `generateSeed()`, which `runPlan()` then writes into the URL
+along with the locked `startDate`, so a freshly generated plan is shareable the
+moment it renders. Base58 omits `0`, `O`, `I` and `l` so a seed survives being
+read aloud. Clearing the seed box in the settings panel generates a new one
+rather than returning to a fixed default, because there no longer is one.
+
+Existing stored seeds are untouched: `getActiveSeed()` only generates when
+storage holds nothing.
+
 ### Pacing
-`time` (max minutes, default 10) and `wpm` (words per minute, default 180)
+`time` (max minutes, default 5) and `wpm` (words per minute, default 180)
 together set a word-count target: `min = max(1, time - 5)`, `max = time`. A day's
 reading is built by walking chapters/verses until that range is hit, grouping
 short chapters together and splitting long chapters at verse boundaries.
@@ -85,14 +96,15 @@ degrade to "nothing persists" rather than breaking.
 ```
 ?seed=...&time=10&wpm=180&startDate=2026-08-21&version=KJV&oneChapter=1
 ```
-- `seed`: shuffle seed (any string)
-- `time`: max minutes per reading
-- `wpm`: reading speed
+- `seed`: shuffle seed (any string); generated if absent, see below
+- `time`: max minutes per reading, default 5
+- `wpm`: reading speed, default 180
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
-- `oneChapter`: cap each reading at one chapter (`0`/`false`/`no` turns it off)
+- `oneChapter`: cap each reading at one chapter, **on by default**
+  (`0`/`false`/`no` turns it off)
 - `version`: optional translation code, serving two unrelated namespaces
 
-`oneChapter` is an upper bound, not a fixed size. It stops short chapters being
+`oneChapter` defaults to **on**. It is an upper bound, not a fixed size. It stops short chapters being
 merged to reach the time minimum, so a day can be well under it, but a chapter
 longer than `time` still splits across days: Psalm 119 stays four readings, not
 one 40-minute sitting. It is a global (`ONE_CHAPTER`) read by the two places
@@ -219,9 +231,13 @@ only on whether a given gap became a paragraph or a line), so re-deriving all of
 them would risk silent changes across 31,000 verses for no gain. `--replace`
 overrides that; `--check` parses and reports without writing.
 
-One known cosmetic difference if you ever do replace: the original left a stray
-space where it removed a footnote, giving "sold for two assaria coins ?". This
-parser joins them correctly. Not worth a full rebuild on its own.
+The blob has since been rebuilt with `--replace`, so everything now comes from
+this parser. The delta from the original was 28 verses: 20 where the old script
+left a stray space behind a removed footnote ("two assaria coins ?", now
+"coins?") and 8 where a gap became a paragraph rather than a line. The break
+rule is that the strongest break in a gap wins, which is what makes prose
+resuming after poetry (Judges 5:31) a paragraph, and `<b/>` is ignored because
+the `<p>` or `<q>` on either side already describes the gap.
 
 The manual recipe, for reference: fetch `eng-web.usfx.xml` from
 `seven1m/open-bibles`, strip `<f>`/`<x>`/`<d>` blocks (footnotes, cross-refs,

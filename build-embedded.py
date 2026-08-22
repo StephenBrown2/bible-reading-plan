@@ -78,11 +78,12 @@ def parse(xml_text: str) -> dict:
             pair[1] += piece            # a separator, not a reason to spend the break
 
     def mark(kind):
-        # First break after a verse ends wins; later ones are the same gap seen
-        # again. <p sfm="ms"><q> opening Psalm 1 is a paragraph, while
-        # <b/><q> opening Genesis 49:3 is a line, because <b/> came first.
-        if not state["pending"]:
-            state["pending"] = kind
+        # The strongest break in a gap wins. A gap containing a <p> is a new
+        # paragraph however many <q> surround it, which is what makes prose
+        # resuming after poetry (Judges 5:31) a paragraph rather than a line,
+        # and a heading followed by poetry (Psalm 1:1) a paragraph too.
+        if kind == PARA_BREAK or not state["pending"]:
+            state["pending"] = kind if state["pending"] != PARA_BREAK else PARA_BREAK
 
     def walk(elem):
         tag = elem.tag
@@ -106,8 +107,10 @@ def parse(xml_text: str) -> dict:
             state["verse"] = None
         elif tag == "p":
             mark(PARA_BREAK)
-        elif tag in ("q", "b"):
+        elif tag == "q":
             mark(LINE_BREAK)
+        # <b/> is a blank line between stanzas, not a break of its own: the gap
+        # around it is already described by the <p> or <q> on either side.
 
         if elem.text:
             emit(elem.text)
