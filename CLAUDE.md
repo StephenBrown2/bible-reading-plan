@@ -95,12 +95,20 @@ The in-app "Shareable link" box (settings panel) regenerates this from the
 *actual stored* `startDate`, so copying it mid-plan still hands a new reader the
 correct anchor.
 
-### Text sourcing (three tiers, in order)
-1. **Live network**, ordered by how much structure the provider preserves rather
-   than by preference: `bible.helloao.org` (paragraphs and poetry lines, 66
-   canonical books, public-domain editions only), then `bolls.life` (line breaks
-   and inline emphasis, no paragraph marks), then `bible-api.dws-cloud.com` (no
-   structure at all). See `fetchChapter()`.
+### Text sourcing, ordered by formatting rather than freshness
+No live provider marks prose paragraphs. helloao gives poetry lines only, bolls
+gives line breaks and inline emphasis, dws-cloud gives nothing, and none of them
+distinguishes a paragraph. The embedded dataset is the only source that does,
+having been built from USFX `<p>` markers, so **WEB is served from the embedded
+copy first** and the live WEB providers sit behind it for the case where the
+embedded data can't be decompressed. A requested translation the embedded copy
+doesn't have (which is all of them but WEB) still goes to the live providers
+first, most structure first, and falls back to the embedded WEB after.
+
+1. **Live network** for a requested non-WEB translation: `bible.helloao.org`
+   (poetry lines, 66 canonical books, public-domain editions only), then
+   `bolls.life` (line breaks and inline emphasis), then
+   `bible-api.dws-cloud.com` (nothing). See `fetchChapter()`.
 
    Everything a provider marks is kept, footnote markers excepted, since the
    embedded dataset strips those at build time and helloao's simple format never
@@ -131,8 +139,13 @@ correct anchor.
    provider. Run it after touching `BOOKS`.
 2. **Embedded dataset**: the entire WEB Bible + deuterocanon, bundled in the page
    as gzip+base64 text, decompressed client-side via the native
-   `DecompressionStream('gzip')` API (no library). Guaranteed fallback,
-   available regardless of network. Source: `seven1m/open-bibles`
+   `DecompressionStream('gzip')` API (no library). Best-formatted source and the
+   guaranteed fallback, available regardless of network. It lives in a
+   `<script type="text/plain">` tag *after* the main script, so `init()` runs on
+   `DOMContentLoaded` rather than inline: reading that element too early yields
+   nothing, and `getEmbeddedWeb()` memoises its result, so an early empty answer
+   would stick for the whole session and every reading would silently come from
+   the live providers instead. Source: `seven1m/open-bibles`
    (`eng-web.usfx.xml`), footnotes stripped, custom parser preserves paragraph
    (`<p>`) and poetry line (`<q>`) structure as `\n\n` / `\n` markers embedded in
    the verse text itself. Baruch is stored as 6 chapters: the source splits ch. 6
