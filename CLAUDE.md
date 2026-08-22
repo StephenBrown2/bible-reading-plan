@@ -98,9 +98,24 @@ correct anchor.
 ### Text sourcing (three tiers, in order)
 1. **Live network**, ordered by how much structure the provider preserves rather
    than by preference: `bible.helloao.org` (paragraphs and poetry lines, 66
-   canonical books, public-domain editions only), then `bolls.life` (poetry
-   lines via `<br>`, no paragraphs), then `bible-api.dws-cloud.com` (no
-   structure at all). See `fetchChapter()`. That ordering makes bolls the
+   canonical books, public-domain editions only), then `bolls.life` (line breaks
+   and inline emphasis, no paragraph marks), then `bible-api.dws-cloud.com` (no
+   structure at all). See `fetchChapter()`.
+
+   Everything a provider marks is kept, footnote markers excepted, since the
+   embedded dataset strips those at build time and helloao's simple format never
+   sends them. From bolls that means `<br>` becomes the renderer's `\n`, and
+   `<i>`/`<e>`/`<b>` (translator-supplied words in NKJV and KJV, AMP's bracketed
+   amplifications, CSB's OT quotations) survive `escapeHtml()` as control
+   characters and come back as `<em>`/`<strong>` in `renderVerseStream()`.
+
+   Two things bolls can't give: it has no paragraph mark, so a passage carrying
+   any `<br>` renders as poetry throughout, including prose; and it prepends
+   section headings to a verse ahead of a `<br>`, indistinguishable from a first
+   line of poetry, so headings stay part of the verse text rather than being
+   guessed at. Editions also differ in how much they mark: `NIV2011` (what `NIV`
+   maps to, matching what BibleGateway means by NIV) carries no line breaks at
+   all, while bolls' 1984 `NIV` does. That ordering makes bolls the
    effective primary for every translation helloao doesn't carry, which is all
    the copyrighted ones. Worth knowing: bolls serves those with no licensing
    story visible, so it may be redistributing without permission. helloao,

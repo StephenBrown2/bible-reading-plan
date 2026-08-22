@@ -406,16 +406,28 @@ async function fetchFromHelloAO(bookId, chapterNum, translation){
   if (!verses.length) return null;
   return { verses };
 }
-// bolls returns verse text as small HTML fragments: <br> for poetry line breaks,
-// <sup> for footnote markers, <i>/<b> for supplied or emphasised words. Keep the
-// line breaks as the "\n" the renderer expects, drop the footnote markers, and
-// let DOMParser flatten the rest (it neither runs scripts nor loads resources,
-// unlike assigning to innerHTML). bolls marks no paragraph breaks, so a passage
-// carrying any <br> renders as poetry throughout, which is where bolls uses them.
+// bolls returns verse text as small HTML fragments. Everything it marks is kept
+// except footnote markers, which every other tier drops too (the embedded
+// dataset strips <f>/<x> at build time, helloao's simple format omits them):
+//   <br>            line break, becomes the "\n" the renderer already handles
+//   <i>, <e>        words supplied by the translators (NKJV, KJV) or AMP's
+//                   bracketed amplifications, kept as emphasis
+//   <b>             quotation emphasis (CSB marks OT quotations this way)
+//   <sup>ⓐ</sup>    footnote and cross-reference markers, dropped
+// Emphasis is carried as control characters so it survives escapeHtml(), and
+// becomes real tags in renderVerseStream(). DOMParser flattens what's left and
+// decodes entities; unlike innerHTML it runs no scripts and loads no resources,
+// which matters for third-party markup.
+//
+// bolls has no paragraph marker. Section headings are simply prepended to a
+// verse ahead of a <br>, indistinguishable from a first line of poetry, so they
+// stay part of the verse text rather than being guessed at.
 function bollsVerseText(html){
   const src = String(html || "")
     .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n");
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<(i|e|em)\b[^>]*>/gi, EM_OPEN).replace(/<\/(i|e|em)>/gi, EM_CLOSE)
+    .replace(/<(b|strong)\b[^>]*>/gi, STRONG_OPEN).replace(/<\/(b|strong)>/gi, STRONG_CLOSE);
   const text = new DOMParser().parseFromString(src, "text/html").body.textContent;
   return text.replace(/[^\S\n]+/g, " ").replace(/ *\n */g, "\n").trim();
 }
@@ -712,6 +724,11 @@ function referenceRange(result){
   return { book: result.name, label, gwRef };
 }
 
+// Inline emphasis travels through escapeHtml() as control characters, then
+// becomes tags in renderVerseStream(). \u0000 is already the verse-number
+// sentinel there, so these start at \u0001.
+const EM_OPEN = "\u0001", EM_CLOSE = "\u0002";
+const STRONG_OPEN = "\u0003", STRONG_CLOSE = "\u0004";
 function escapeHtml(s){
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -734,7 +751,10 @@ function renderVerseStream(verses){
   const paragraphs = stream.split(/\n\n+/).filter(p => p.length);
   return paragraphs.map(p => {
     const lines = p.split(/\n/).filter(l => l.length);
-    const renderLine = (line) => line.replace(/\u0000(\d+)\u0000/g, "<sup>$1</sup>");
+    const renderLine = (line) => line
+      .replace(/\u0000(\d+)\u0000/g, "<sup>$1</sup>")
+      .replace(new RegExp(EM_OPEN, "g"), "<em>").replace(new RegExp(EM_CLOSE, "g"), "</em>")
+      .replace(new RegExp(STRONG_OPEN, "g"), "<strong>").replace(new RegExp(STRONG_CLOSE, "g"), "</strong>");
     if (lines.length > 1){
       return `<div class="poem">${lines.map(l => `<div class="poem-line">${renderLine(l)}</div>`).join("")}</div>`;
     }
