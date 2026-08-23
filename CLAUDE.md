@@ -84,9 +84,9 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
 (day 0) and computed from calendar days elapsed since then:
 
 - `dayIndexToday = daysBetween(startDate, today)`
-- if there's a gap since `lastGeneratedDate`, it walks forward through **every**
-  missed day in sequence (not skipping), showing a "Catching up" list, landing on
-  today's reading last.
+- if there's a gap since `lastGeneratedDate`, every owed day is built in
+  sequence into `PENDING`, oldest first, ending with today. The page opens on
+  the **oldest unread day**, and Next steps forward through the backlog.
 - Each unique `(seed, time, wpm)` combination is tracked independently. Changing
   any of the three starts a fresh, separately-tracked plan.
 - `startDate` is locked in the first time a given combination is
@@ -95,6 +95,14 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
 
 This is what lets two people on a shared link land on the same passage on the
 same calendar date without a server. See `runPlan()`.
+
+A day is committed only when the reader steps *past* it: `commitThrough()` moves
+the cursor and sets `lastGeneratedDate` to that day's date. Closing the tab half
+way through a backlog therefore resumes where they stopped rather than losing
+the rest, which is why `lastGeneratedDate` advances one day at a time instead of
+jumping to today. Today's entry commits as soon as it is reached, so a visitor
+with nothing owed behaves exactly as before. "Skip to today" and clicking ahead
+in the list commit everything jumped over; stepping back only re-reads.
 
 ### Single-chapter books
 Ten books are one chapter (Obadiah, Philemon, 2-3 John, Jude, and five of the

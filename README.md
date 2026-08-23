@@ -79,8 +79,12 @@ day, lower it for less.
 
 The day-0 anchor, as `YYYY-MM-DD`. Progress is not "advance once per visit": it
 is computed from the number of calendar days between this date and today, which
-is what keeps two readers in sync without a server. Miss a week and the plan
-walks you through every missed day in order rather than skipping ahead.
+is what keeps two readers in sync without a server.
+
+Miss a week and nothing is skipped. The page opens on the oldest reading you
+still owe and a "Catching up" panel steps you forward one day at a time, or
+straight to today if you would rather. A day only counts as read once you move
+past it, so you can stop half way and pick up there next time.
 
 **It only applies to a brand-new plan.** Once a given combination of settings
 has a start date, that date is locked and a `startDate` in the URL is ignored,

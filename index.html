@@ -99,6 +99,12 @@
   .catchup-list{ font-size:13px; line-height:1.9; }
   .catchup-list .cu-date{ color:var(--ink-soft); display:inline-block; min-width:56px; }
   .catchup-more{ font-size:12px; color:var(--ink-soft); margin-top:6px; font-style:italic; }
+  .catchup-list .cu-row{ cursor:pointer; }
+  .catchup-list .cu-row:hover{ color:var(--ribbon); }
+  .catchup-list .cu-current{ font-weight:600; color:var(--ribbon); }
+  .catchup-nav{ margin-top:12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .catchup-nav span{ font-size:12px; color:var(--ink-soft); }
+  .catchup-nav button[disabled]{ opacity:.4; cursor:default; }
   .panel .row input[type=number]{
     width:64px; font-family:inherit; font-size:14px; padding:8px 10px; border:1px solid var(--line);
     border-radius:4px; background:var(--paper); color:var(--ink);
@@ -123,12 +129,18 @@
 </head>
 <body>
 <div class="page">
-  <div class="eyebrow">Today's Reading</div>
+  <div class="eyebrow" id="eyebrow">Today's Reading</div>
   <div class="date" id="dateLine"></div>
   <div class="catchup" id="catchupPanel" style="display:none">
     <div class="catchup-title">Catching up</div>
     <div class="catchup-list" id="catchupList"></div>
     <div class="catchup-more" id="catchupMore" style="display:none"></div>
+    <div class="catchup-nav">
+      <button id="catchupPrev">Previous</button>
+      <span id="catchupPosition"></span>
+      <button id="catchupNext">Next</button>
+      <button id="catchupSkip">Skip to today</button>
+    </div>
   </div>
   <div id="root" class="loading">Opening to today's page…</div>
   <div class="progress-wrap" id="progressWrap" style="display:none">
@@ -850,10 +862,13 @@ function progressPercent(result){
   return Math.round((read / total) * 100);
 }
 
-function render(todayKey, result){
+function render(dateKey, result){
   const ref = referenceRange(result);
+  // The heading follows the day on screen, which is not today while catching up.
+  document.getElementById("eyebrow").textContent =
+    dateKey === localDateKey(new Date()) ? "Today's Reading" : "Missed Reading";
   document.getElementById("dateLine").textContent =
-    new Date(todayKey + "T00:00:00").toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
+    new Date(dateKey + "T00:00:00").toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
 
   const root = document.getElementById("root");
   root.className = "card";
@@ -876,9 +891,10 @@ function render(todayKey, result){
 
   const nextBook = result.bookFinished ? nameForOrderIndex(result.nextOrderIndex)[0] : result.name;
   const afterBook = nameForOrderIndex(result.nextOrderIndex + 1)[0];
+  const when = dateKey === localDateKey(new Date()) ? ["today", "tomorrow"] : ["that day", "next"];
   document.getElementById("upNext").innerHTML = result.bookFinished
-    ? `Finishing <b>${result.name}</b> today. Next up: <b>${nextBook}</b>, then <b>${afterBook}</b>.`
-    : `Continuing <b>${result.name}</b> tomorrow. After that: <b>${afterBook}</b>.`;
+    ? `Finishing <b>${result.name}</b> ${when[0]}. Next up: <b>${nextBook}</b>, then <b>${afterBook}</b>.`
+    : `Continuing <b>${result.name}</b> ${when[1]}. After that: <b>${afterBook}</b>.`;
 
   renderPassageText(result);
 
@@ -894,20 +910,35 @@ function renderOrderList(){
     ORDER.map((bi, i) => `<div>${i+1}. ${BOOKS[bi][0]}</div>`).join("");
 }
 
-function renderCatchUp(entries){
+function renderCatchUp(){
   const panel = document.getElementById("catchupPanel");
-  if (!entries.length){ panel.style.display = "none"; return; }
+  if (PENDING.length < 2){ panel.style.display = "none"; return; }
   panel.style.display = "block";
-  const shown = entries.slice(-CATCHUP_DISPLAY_LIMIT);
-  const hidden = entries.length - shown.length;
-  document.getElementById("catchupList").innerHTML = shown.map(e => {
+
+  // Show the window of days around the one being read, newest last.
+  const first = Math.max(0, Math.min(PENDING_INDEX - 2, PENDING.length - CATCHUP_DISPLAY_LIMIT));
+  const shown = PENDING.slice(first, first + CATCHUP_DISPLAY_LIMIT);
+  document.getElementById("catchupList").innerHTML = shown.map((e, i) => {
     const ref = referenceRange(e.result);
     const label = new Date(e.date + "T00:00:00").toLocaleDateString(undefined, { month:"short", day:"numeric" });
-    return `<div><span class="cu-date">${label}</span> ${e.result.name} ${ref.label.replace("Chapter ", "").replace("Chapters ", "")}</div>`;
+    const current = first + i === PENDING_INDEX ? " cu-current" : "";
+    return `<div class="cu-row${current}" data-index="${first + i}"><span class="cu-date">${label}</span>` +
+           ` ${e.result.name} ${ref.label.replace(/^Chapters? /, "")}</div>`;
   }).join("");
+
+  const hidden = PENDING.length - shown.length;
   const moreEl = document.getElementById("catchupMore");
-  if (hidden > 0){ moreEl.style.display = "block"; moreEl.textContent = `+ ${hidden} earlier missed day${hidden===1?"":"s"}`; }
-  else { moreEl.style.display = "none"; }
+  moreEl.style.display = hidden > 0 ? "block" : "none";
+  moreEl.textContent = `+ ${hidden} more missed day${hidden === 1 ? "" : "s"}`;
+
+  const last = PENDING.length - 1;
+  document.getElementById("catchupPosition").textContent =
+    PENDING_INDEX === last
+      ? "Caught up: this is today's reading"
+      : `Day ${PENDING_INDEX + 1} of ${PENDING.length}, ${last - PENDING_INDEX} still to read`;
+  document.getElementById("catchupPrev").disabled = PENDING_INDEX === 0;
+  document.getElementById("catchupNext").disabled = PENDING_INDEX === last;
+  document.getElementById("catchupSkip").disabled = PENDING_INDEX === last;
 }
 
 function updateShareLink(state){
@@ -945,33 +976,52 @@ async function runPlan(resetFirst){
   const lastIndex = state.lastGeneratedDate ? daysBetween(state.startDate, state.lastGeneratedDate) : -1;
   const missing = dayIndexToday - lastIndex;
 
-  let result, catchUpEntries = [];
+  // Every day still owed, oldest first, ending with today. A day is only marked
+  // read when the reader steps past it, so closing the tab half way through a
+  // backlog resumes where they stopped rather than skipping the rest.
+  PENDING = [];
   if (missing <= 0){
-    result = await generateReading(state.todayStart || state.cursor, true);
+    const cursor = state.todayStart || state.cursor;
+    PENDING.push({ date: today, cursor, result: await generateReading(cursor, true) });
   } else {
     let cursor = state.cursor;
     for (let i = 0; i < missing; i++){
-      const isLast = i === missing - 1;
-      const allowLive = isLast || (missing - i) <= LIVE_CATCHUP_LIMIT;
+      const allowLive = (missing - i) <= LIVE_CATCHUP_LIMIT;
       const r = await generateReading(cursor, allowLive);
-      if (!isLast){
-        catchUpEntries.push({ date: addDays(state.startDate, lastIndex + 1 + i), result: r });
-      } else {
-        result = r;
-        state.todayStart = cursor;
-      }
+      PENDING.push({ date: addDays(state.startDate, lastIndex + 1 + i), cursor, result: r });
       cursor = { orderIndex: r.nextOrderIndex, chapterPointer: r.nextChapter, versePointer: r.nextVerse };
     }
-    state.cursor = cursor;
-    state.lastGeneratedDate = today;
-    saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, state);
   }
+  PLAN_STATE = state;
+  showPendingDay(0);
+}
 
-  CURRENT_RESULT = result;
-  if (result.live) pruneChapterCache(result.bookId, result.chapter);
-  render(today, result);
-  renderCatchUp(catchUpEntries);
-  updateShareLink(state);
+// Which day of the backlog is on screen, and the backlog itself.
+let PENDING = [], PENDING_INDEX = 0, PLAN_STATE = null;
+
+// Reading a day commits it: the cursor moves past it and that date becomes the
+// last one generated. Today commits as soon as it is reached, which is what a
+// visitor with nothing to catch up on gets immediately.
+function commitThrough(index){
+  const entry = PENDING[index];
+  const r = entry.result;
+  PLAN_STATE.cursor = { orderIndex: r.nextOrderIndex, chapterPointer: r.nextChapter, versePointer: r.nextVerse };
+  PLAN_STATE.lastGeneratedDate = entry.date;
+  if (index === PENDING.length - 1) PLAN_STATE.todayStart = entry.cursor;
+  saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, PLAN_STATE);
+}
+
+function showPendingDay(index){
+  PENDING_INDEX = Math.max(0, Math.min(index, PENDING.length - 1));
+  const entry = PENDING[PENDING_INDEX];
+  const isLast = PENDING_INDEX === PENDING.length - 1;
+  if (isLast) commitThrough(PENDING_INDEX);
+
+  CURRENT_RESULT = entry.result;
+  if (entry.result.live) pruneChapterCache(entry.result.bookId, entry.result.chapter);
+  render(entry.date, entry.result);
+  renderCatchUp();
+  updateShareLink(PLAN_STATE);
 }
 
 async function init(){
@@ -998,6 +1048,25 @@ function togglePanel(id){
   ["textPanel","readPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
   document.getElementById(id).classList.toggle("open");
 }
+// Stepping forward commits the day being left; stepping back only re-reads.
+document.getElementById("catchupNext").addEventListener("click", () => {
+  commitThrough(PENDING_INDEX);
+  showPendingDay(PENDING_INDEX + 1);
+});
+document.getElementById("catchupPrev").addEventListener("click", () => showPendingDay(PENDING_INDEX - 1));
+document.getElementById("catchupSkip").addEventListener("click", () => {
+  for (let i = PENDING_INDEX; i < PENDING.length - 1; i++) commitThrough(i);
+  showPendingDay(PENDING.length - 1);
+});
+document.getElementById("catchupList").addEventListener("click", (e) => {
+  const row = e.target.closest(".cu-row");
+  if (!row) return;
+  const target = Number(row.dataset.index);
+  // Jumping ahead marks everything skipped over as read, the same as Next would.
+  for (let i = PENDING_INDEX; i < target; i++) commitThrough(i);
+  showPendingDay(target);
+});
+
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
 document.getElementById("readBtn").addEventListener("click", () => togglePanel("readPanel"));
 document.getElementById("orderBtn").addEventListener("click", () => togglePanel("orderPanel"));
