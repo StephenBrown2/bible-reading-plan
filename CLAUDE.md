@@ -164,9 +164,15 @@ Deuterocanon narrows it further, per edition rather than per provider: an
 edition without the book answers with a 404 or an empty chapter, which falls
 through to the next attempt on its own.
 
-Both `<select>` controls are built from `TEXT_TRANSLATIONS` by
-`versionOptions()`. The settings one offers every code; the "Read online" one
-filters to entries flagged `deutero: true` when the day's book needs it.
+Both `<select>` controls live in the Translation card and are built from
+`TEXT_TRANSLATIONS` by `versionOptions()`. The passage one offers every code and
+applies on `change`, since a translation changes only which text is fetched, not
+the pacing or the plan's position; the "Read online" one filters to entries
+flagged `deutero: true` when the day's book needs it.
+
+The shareable link is a plain `<footer class="share">` at the end of `.page`, in
+normal flow. Deliberately not sticky: it is a thing to copy occasionally, not a
+control, and a fixed bar would eat reading space on a phone.
 
 The in-app "Shareable link" box (settings panel) regenerates this from the
 *actual stored* `startDate`, so copying it mid-plan still hands a new reader the

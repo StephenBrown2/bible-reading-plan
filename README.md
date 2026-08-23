@@ -23,9 +23,9 @@ https://bible.sibii.space/?seed=cisVXBmDX6Bq&time=5&wpm=180&startDate=2026-08-22
 ```
 
 Send that URL to someone and they get the identical plan on the identical
-schedule. The settings panel has a "Shareable link" box with the same thing,
-regenerated from your stored start date, so copying it mid-plan still hands a
-new reader the correct day-0 anchor.
+schedule. The same link sits in a "Shareable link" footer at the bottom of the
+page, regenerated from your stored start date, so copying it mid-plan still
+hands a new reader the correct day-0 anchor.
 
 ## URL parameters
 

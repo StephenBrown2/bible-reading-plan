@@ -122,7 +122,14 @@
     border-radius:4px; background:var(--paper); color:var(--ink);
   }
   .panel .minirow{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-soft); }
-  .panel textarea{
+  /* Plain footer: after everything else in normal flow, never sticky. */
+  .share{ margin-top:34px; padding-top:18px; border-top:1px solid var(--line); }
+  .share label{
+    display:block; letter-spacing:.08em; text-transform:uppercase; font-size:11px;
+    color:var(--ink-soft); margin-bottom:8px;
+  }
+  .share .hint{ font-size:11px; color:var(--ink-soft); margin-top:6px; line-height:1.5; }
+  .panel textarea, .share textarea{
     width:100%; font-family:inherit; font-size:12px; padding:8px 10px; border:1px solid var(--line);
     border-radius:4px; background:var(--paper); color:var(--ink); resize:none; height:44px;
   }
@@ -200,7 +207,7 @@
 
   <div class="actions">
     <button id="textBtn">Show text</button>
-    <button id="readBtn">Read online</button>
+    <button id="translationBtn">Translation</button>
     <button id="orderBtn">View full order</button>
     <button id="seedBtn">Change seed</button>
     <button id="resetBtn">Restart plan</button>
@@ -212,8 +219,17 @@
     <div class="passage-text" id="passageText">Loading…</div>
   </div>
 
-  <div class="panel" id="readPanel">
-    <label>Read online in another translation</label>
+  <div class="panel" id="translationPanel">
+    <label>Passage translation</label>
+    <div class="row">
+      <select id="versionInput"></select>
+    </div>
+    <div class="hint">
+      Applies straight away. Editions the text providers don't carry steer the
+      link below only, leaving the passage in the World English Bible; the
+      heading above the text always names what you are actually reading.
+    </div>
+    <label style="margin-top:14px">Read online in another translation</label>
     <div class="row">
       <select id="versionSelect"></select>
       <span class="readlink"><a id="readLink" href="#" target="_blank" rel="noopener">Open ↗</a></span>
@@ -235,22 +251,23 @@
       <div class="minirow">wpm <input type="number" id="wpmInput" min="50" max="500" /></div>
     </div>
     <div class="row" style="margin-top:10px">
-      <div class="minirow">version <select id="versionInput"></select></div>
       <div class="minirow">start date <input type="date" id="startDateInput" /></div>
     </div>
     <div class="row" style="margin-top:10px">
       <button id="applySeedBtn">Apply</button>
     </div>
     <div class="hint">
-      Seed, max minutes, and wpm together determine the exact daily pacing —
-      match all three (and start date, for a brand-new plan) to stay in sync
-      with someone else. Version is tried on the live text API first and
-      falls back to WEB (or, for deuterocanon books, the Catholic-inclusive
-      edition) if it's not given or not found.
+      Seed, max minutes and wpm together determine the exact daily pacing: match
+      all three, and the start date for a brand-new plan, to stay in step with
+      someone else.
     </div>
-    <label style="margin-top:10px">Shareable link</label>
-    <textarea id="shareLink" readonly onclick="this.select()"></textarea>
   </div>
+
+  <footer class="share">
+    <label for="shareLink">Shareable link</label>
+    <textarea id="shareLink" readonly onclick="this.select()"></textarea>
+    <div class="hint">Hands anyone who opens it this exact plan, on this exact schedule.</div>
+  </footer>
 </div>
 
 <script>
@@ -1197,7 +1214,7 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
 });
 
 function togglePanel(id){
-  ["textPanel","readPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
+  ["textPanel","translationPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
   document.getElementById(id).classList.toggle("open");
 }
 // Stepping forward commits the day being left; stepping back only re-reads.
@@ -1220,7 +1237,7 @@ document.getElementById("catchupList").addEventListener("click", (e) => {
 });
 
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
-document.getElementById("readBtn").addEventListener("click", () => togglePanel("readPanel"));
+document.getElementById("translationBtn").addEventListener("click", () => togglePanel("translationPanel"));
 document.getElementById("orderBtn").addEventListener("click", () => togglePanel("orderPanel"));
 document.getElementById("seedBtn").addEventListener("click", () => togglePanel("seedPanel"));
 
@@ -1228,12 +1245,20 @@ document.getElementById("versionSelect").addEventListener("change", () => {
   if (CURRENT_RESULT){ const ref = referenceRange(CURRENT_RESULT); updateReadLink(ref.book, ref.gwRef); }
 });
 
+// Changing the passage translation only changes which text is fetched, never
+// the pacing or the plan's position, so it applies immediately rather than
+// waiting behind the seed card's Apply.
+document.getElementById("versionInput").addEventListener("change", async (e) => {
+  REQUESTED_VERSION = e.target.value || null;
+  setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
+  await runPlan(false);
+});
+
 document.getElementById("applySeedBtn").addEventListener("click", async () => {
   const newSeed = document.getElementById("seedInput").value.trim() || generateSeed();
   let newTime = parseInt(document.getElementById("timeInput").value, 10); if (!newTime || newTime < 1) newTime = 5;
   let newWpm = parseInt(document.getElementById("wpmInput").value, 10); if (!newWpm || newWpm < 50) newWpm = 180;
-  const newVersion = document.getElementById("versionInput").value || null;
-  ACTIVE_SEED = newSeed; MAX_MINUTES = newTime; WORDS_PER_MINUTE = newWpm; REQUESTED_VERSION = newVersion;
+  ACTIVE_SEED = newSeed; MAX_MINUTES = newTime; WORDS_PER_MINUTE = newWpm;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
   setActiveSeed(ACTIVE_SEED);
   setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
