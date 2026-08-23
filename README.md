@@ -96,16 +96,15 @@ so sharing a link can't retroactively shift someone's plan.
 
 ### `version`
 
-The translation. This parameter does two jobs at once.
+The translation for the **passage text shown in the page**, for codes a text
+provider actually has. Anything else leaves the displayed text as the World
+English Bible. The text panel always names the edition you are actually
+reading, so a code that can't be honored is visible rather than silent.
 
-It picks the translation for the **"Read online" link**, where any
-[BibleGateway](https://www.biblegateway.com) code works, including ones no free
-API carries.
-
-It also picks the translation for the **passage text shown in the page**, but
-only for codes a text provider actually has. Anything else leaves the displayed
-text as the World English Bible. The text panel always names the edition you are
-actually reading, so a code that can't be honored is visible rather than silent.
+It has no effect on the **"Read online" link**: that link opens with no
+translation specified, except on a deuterocanon day, where it automatically
+adds one that carries the book (your own `version`, if it's a Catholic/Orthodox
+edition, otherwise Douay-Rheims).
 
 Codes that change the displayed text:
 

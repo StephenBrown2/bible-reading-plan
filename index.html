@@ -58,12 +58,13 @@
   .up-next{ margin-top:26px; font-size:12px; color:var(--ink-soft); text-align:center; line-height:1.7; }
   .up-next b{ color:var(--ink); font-weight:600; }
   .actions{ margin-top:30px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
-  button, select{
+  button, select, .action-link{
     font-family:inherit; background:none; border:1px solid var(--line); color:var(--ink-soft);
     font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:8px 16px;
     border-radius:20px; cursor:pointer;
   }
-  button:hover{ border-color:var(--ribbon-dim); color:var(--ribbon); }
+  .action-link{ display:inline-block; text-decoration:none; }
+  button:hover, .action-link:hover{ border-color:var(--ribbon-dim); color:var(--ribbon); }
   button:focus-visible, select:focus-visible{ outline:2px solid var(--ribbon); outline-offset:2px; }
   .loading{ text-align:center; color:var(--ink-soft); padding:60px 0; font-size:14px; }
   .confirm{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:10px; }
@@ -196,7 +197,6 @@
       max-width:min(28rem, 88vw);
     }
   }
-  .readlink a{ color:var(--ribbon); text-decoration:none; border-bottom:1px solid var(--ribbon-dim); }
 </style>
 </head>
 <body>
@@ -223,7 +223,7 @@
 
   <div class="actions">
     <button id="textBtn">Show text</button>
-    <button id="readBtn">Read online</button>
+    <a id="readBtn" class="action-link" href="#" target="_blank" rel="noopener">Read online</a>
     <button id="orderBtn">View full order</button>
     <button id="seedBtn">Change seed</button>
     <button id="resetBtn">Restart plan</button>
@@ -237,14 +237,6 @@
       <span class="fallback-note" id="textFallbackNote"></span>
     </div>
     <div class="passage-text" id="passageText">Loading…</div>
-  </div>
-
-  <div class="panel" id="readPanel">
-    <label>Read online in another translation</label>
-    <div class="row">
-      <select id="versionSelect"></select>
-      <span class="readlink"><a id="readLink" href="#" target="_blank" rel="noopener">Open ↗</a></span>
-    </div>
   </div>
 
   <div class="panel" id="orderPanel">
@@ -1006,25 +998,23 @@ function renderPassageText(result){
 }
 
 
-// Both version controls come from TEXT_TRANSLATIONS: the settings one offers
-// every code, the "Read online" one only those whose canon has the book in hand.
-const versionOptions = (filter) =>
+const versionOptions = () =>
   Object.entries(TEXT_TRANSLATIONS)
-    .filter(([, t]) => !filter || t.deutero)
     .map(([code, t]) => `<option value="${code}">${t.label}</option>`)
     .join("");
 
-function populateVersionSelect(isDeutero, preferred){
-  const sel = document.getElementById("versionSelect");
-  sel.innerHTML = versionOptions(isDeutero);
-  if (preferred && sel.querySelector(`option[value="${preferred.toUpperCase()}"]`)){
-    sel.value = preferred.toUpperCase();
+// No version param for an ordinary book: BibleGateway falls back to its own
+// default. A deuterocanon book needs one, since common defaults (NIV, ESV)
+// don't carry it: use the reader's chosen version if it's deutero-capable,
+// else DRA (public domain, has all 73 books).
+function updateReadLink(bookName, gwRef, isDeutero){
+  let url = `https://www.biblegateway.com/passage/?search=${encodeURIComponent(bookName + " " + gwRef)}`;
+  if (isDeutero){
+    const requested = (REQUESTED_VERSION || "").toUpperCase();
+    const version = TEXT_TRANSLATIONS[requested]?.deutero ? requested : "DRA";
+    url += `&version=${version}`;
   }
-}
-function updateReadLink(bookName, gwRef){
-  const version = document.getElementById("versionSelect").value;
-  const url = `https://www.biblegateway.com/passage/?search=${encodeURIComponent(bookName + " " + gwRef)}&version=${version}`;
-  document.getElementById("readLink").href = url;
+  document.getElementById("readBtn").href = url;
 }
 
 // A one-chapter book measures its progress in verses; everything else in
@@ -1083,8 +1073,7 @@ function render(dateKey, result){
   renderPassageText(result);
 
   const bookEntry = BOOKS.find(b => b[0] === result.name);
-  populateVersionSelect(bookEntry ? bookEntry[4] : false, REQUESTED_VERSION);
-  updateReadLink(ref.book, ref.gwRef);
+  updateReadLink(ref.book, ref.gwRef, bookEntry ? bookEntry[4] : false);
 
   renderOrderList();
 }
@@ -1148,7 +1137,7 @@ async function runPlan(resetFirst){
   document.getElementById("timeInput").value = MAX_MINUTES;
   document.getElementById("wpmInput").value = WORDS_PER_MINUTE;
   const versionInput = document.getElementById("versionInput");
-  versionInput.innerHTML = `<option value="">Default (World English Bible)</option>` + versionOptions(false);
+  versionInput.innerHTML = `<option value="">Default (World English Bible)</option>` + versionOptions();
   versionInput.value = (REQUESTED_VERSION || "").toUpperCase();
 
   let state = resetFirst ? defaultState() : loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE);
@@ -1232,7 +1221,7 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
 });
 
 function togglePanel(id){
-  ["textPanel","readPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
+  ["textPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
   document.getElementById(id).classList.toggle("open");
 }
 // Stepping forward commits the day being left; stepping back only re-reads.
@@ -1255,7 +1244,6 @@ document.getElementById("catchupList").addEventListener("click", (e) => {
 });
 
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
-document.getElementById("readBtn").addEventListener("click", () => togglePanel("readPanel"));
 
 // Copy the share link, and say so on the button. Where the Clipboard API is
 // unavailable or refused (insecure context, permission denied), select the text
@@ -1286,13 +1274,10 @@ document.getElementById("shareLink").addEventListener("keydown", (e) => {
 document.getElementById("orderBtn").addEventListener("click", () => togglePanel("orderPanel"));
 document.getElementById("seedBtn").addEventListener("click", () => togglePanel("seedPanel"));
 
-document.getElementById("versionSelect").addEventListener("change", () => {
-  if (CURRENT_RESULT){ const ref = referenceRange(CURRENT_RESULT); updateReadLink(ref.book, ref.gwRef); }
-});
-
 // Changing the passage translation only changes which text is fetched, never
 // the pacing or the plan's position, so it applies immediately rather than
-// waiting behind the seed card's Apply.
+// waiting behind the seed card's Apply. It can also change the "Read online"
+// link, since a deuterocanon day picks its BibleGateway version from this.
 document.getElementById("versionInput").addEventListener("change", async (e) => {
   REQUESTED_VERSION = e.target.value || null;
   setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);

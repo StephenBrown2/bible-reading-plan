@@ -148,14 +148,10 @@ and its tier returns before the caching code.
 - `time`: max minutes per reading, default 5
 - `wpm`: reading speed, default 180
 - `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
-- `version`: optional translation code, serving two unrelated namespaces
-
-`version` means two things at once. It selects the "Read online" BibleGateway
-link's translation, where any BibleGateway code works, *and* it picks the
-edition the passage text is fetched in. `TEXT_TRANSLATIONS` is the list of
-codes that can do the second job; anything outside it steers the BibleGateway
-link only and the text stays WEB. The text panel's label names the edition
-actually shown, so a code that can't be honored fails visibly.
+- `version`: optional translation code, picks the edition the passage text is
+  fetched in; `TEXT_TRANSLATIONS` is the list of codes that can be honored,
+  anything outside it leaves the text at WEB. The text panel's label names the
+  edition actually shown, so a code that can't be honored fails visibly.
 
 Adding a code means checking it against both providers first, because their ids
 disagree: api.bible uses opaque hex ids, bolls is uppercase and sometimes
@@ -164,18 +160,26 @@ Deuterocanon narrows it further, per edition rather than per provider: an
 edition without the book answers with a 404 or an empty chapter, which falls
 through to the next attempt on its own.
 
-Both `<select>` controls are built from `TEXT_TRANSLATIONS` by
-`versionOptions()`. The passage one sits on the text panel's heading line, in
-place of the translation name that used to be printed there, so it appears only
-with Show text and applies on `change`: a translation changes only which text is
+The passage text's `<select>` is built from `TEXT_TRANSLATIONS` by
+`versionOptions()` and sits on the text panel's heading line, in place of the
+translation name that used to be printed there, so it appears only with Show
+text and applies on `change`: a translation changes only which text is
 fetched, never the pacing or the plan's position, so it needs no Apply.
 
 Since the picker shows what was *asked for*, `#textFallbackNote` covers what
 actually arrived, and only when the two differ ("showing World English Bible"
 beside a picker reading CSB). Don't drop it as redundant: a requested edition
 that a provider doesn't carry falls back silently otherwise, and the reader has
-no way to tell which translation is on screen. The "Read online" one keeps its own card and
-filters to entries flagged `deutero: true` when the day's book needs it.
+no way to tell which translation is on screen.
+
+"Read online" is a plain link (`#readBtn`), not a panel: no dropdown, no user
+choice. `updateReadLink()` builds its `href` straight from the book and
+reference, with no `&version=` for an ordinary book (BibleGateway falls back to
+its own default). A deuterocanon day is the one case that needs a version
+forced, since common defaults like NIV or ESV don't carry those books at all:
+it uses `REQUESTED_VERSION` if that's one of the `deutero: true` codes, else
+`DRA` (public domain, has all 73). This runs automatically off the day's book,
+not off anything the reader picks for the "Read online" link specifically.
 
 `version` stays out of the shareable link until it is actually chosen, since the
 default option's value is `""` and `updateShareLink()` only writes the parameter
