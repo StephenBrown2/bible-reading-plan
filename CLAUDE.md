@@ -214,8 +214,24 @@ bolls.
    wrong book. `./check-bolls-books.py` asserts the numbering bolls actually
    uses. Run it after touching `BOOKS`.
 2. **Embedded dataset**: the entire WEB Bible + deuterocanon, bundled in the page
-   as gzip+base64 text, decompressed client-side via the native
-   `DecompressionStream('gzip')` API (no library). Best-formatted source and the
+   as brotli+base64 text, decompressed client-side via the native
+   `DecompressionStream('brotli')` API (no library).
+
+   **This tier does not work in Chrome.** `DecompressionStream` accepts brotli in
+   Firefox 147+ and Safari 18.4+ only; Chrome supports gzip and deflate but not
+   brotli, and the constructor throws. `loadEmbeddedWeb()` catches that, memoises
+   an empty result, and the chain falls through to the live providers. Measured
+   consequences on Chrome: canonical books read normally from api.bible's WEB
+   (paragraphs and footnotes intact), 7 of the 10 wider-canon books resolve the
+   same way, but **Song of the Three, Susanna and Bel and the Dragon have no live
+   source at all** and land on the word-count estimate, and offline reading is
+   gone entirely. Chrome also still downloads the 1.6 MB blob it cannot use.
+
+   That was accepted deliberately in exchange for the smaller page (brotli q11
+   base64 is 1,625,908 characters against gzip's 2,181,304). The way out, when it
+   is worth doing, is two sibling files chosen by feature detection: a `.br` for
+   Firefox and Safari, a `.gz` for Chrome. That also drops index.html to tens of
+   KB. It is on the table, not done. Best-formatted source and the
    guaranteed fallback, available regardless of network. It lives in a
    `<script type="text/plain">` tag *after* the main script, so `init()` runs on
    `DOMContentLoaded` rather than inline: reading that element too early yields
@@ -303,8 +319,8 @@ verse's footnotes; verse numbers aren't always contiguous, e.g. Sirach, so don't
 assume `index = verse - 1`), track `<p>`/`<q>`/`<b/>` as paragraph/line markers
 per the scheme above, merge `LJE` into `BAR[5]` (0-indexed chapter 6),
 filter to the 83 needed book IDs, `json.dumps(..., separators=(',',':'))`,
-`gzip.compress(..., 9)`, `base64.b64encode`, drop into the
-`<script type="text/plain" id="embeddedWebDataGz">` tag before `</body>`.
+`brotli.compress(..., quality=11)`, `base64.b64encode`, drop into the
+`<script type="text/plain" id="embeddedWebDataBr">` tag before `</body>`.
 
 ### The api.bible key
 `API_BIBLE_KEY` in `index.html` holds the key XOR'd against `API_BIBLE_PAD` and
@@ -336,10 +352,9 @@ maintained here.
 ## Things NOT to do
 
 - Don't re-embed the Bible text uncompressed "for simplicity." Raw JSON is
-  ~4.65 MB, gzip+base64 gets it to ~1.9 MB. No reason to regress it.
-- Don't switch the embed compression to Brotli. Smaller (~1.5 MB total) but
-  native `DecompressionStream('brotli')` support is inconsistent enough that it
-  isn't worth two code paths. Gzip has been Baseline-supported since 2023.
+  ~5.5 MB, brotli+base64 gets it to ~1.6 MB. No reason to regress it.
+- Don't "fix" Chrome by going back to gzip. The embed is brotli on purpose, and
+  the Chrome gap is a known, accepted cost. See the note below.
 - Don't add real per-chapter word-count data to replace the tier-3 averages.
   Tier 3 only runs if a book is missing from the embedded dataset (none are) or
   the embedded data fails to load at runtime. Sourcing exact counts for ~1,200

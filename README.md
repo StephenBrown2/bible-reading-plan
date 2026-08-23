@@ -142,10 +142,16 @@ not by freshness:
    translator-supplied words shown in italics.
 2. **bolls.life** for the modern copyrighted translations no one else carries.
    Line breaks and inline emphasis, no paragraph marks.
-3. **The embedded copy.** The entire World English Bible, all 83 books, gzipped
-   into the page itself and decompressed in your browser. It carries full
-   paragraph and poetry structure, so it is the *first* choice for WEB rather
-   than a last resort, and it means the plan works with no network at all.
+3. **The embedded copy.** The entire World English Bible, all 83 books,
+   brotli-compressed into the page itself and decompressed in your browser. It
+   carries full paragraph and poetry structure, so it is the *first* choice for
+   WEB rather than a last resort, and it means the plan works with no network at
+   all.
+
+   Chrome is the exception: it has no brotli in `DecompressionStream` (Firefox
+   147+ and Safari 18.4+ do). There the copy is skipped and the text comes from
+   the network instead, so reading works but offline reading does not, and a
+   few books of the wider canon have no source left.
 
 ## Footnotes
 

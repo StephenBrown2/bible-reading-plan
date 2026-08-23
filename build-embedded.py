@@ -1,6 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
+# dependencies = ["brotli"]
 # ///
 """Rebuild the embedded WEB dataset in index.html from the USFX source.
 
@@ -19,8 +20,9 @@ Usage: ./build-embedded.py [--check]
 """
 
 import base64
-import gzip
 import json
+
+import brotli
 import pathlib
 import re
 import sys
@@ -195,14 +197,14 @@ def main() -> int:
 
     html_path = pathlib.Path("index.html")
     html = html_path.read_text()
-    if 'id="embeddedWebDataGz"' not in html:
+    if 'id="embeddedWebDataBr"' not in html:
         print("could not find the embeddedWebDataGz script tag")
         return 1
     packed = base64.b64encode(
-        gzip.compress(json.dumps(data, separators=(",", ":")).encode(), 9)
+        brotli.compress(json.dumps(data, separators=(",", ":")).encode(), quality=11)
     ).decode()
     new = re.sub(
-        r'(<script type="text/plain" id="embeddedWebDataGz">)[^<]+(</script>)',
+        r'(<script type="text/plain" id="embeddedWebDataBr">)[^<]+(</script>)',
         lambda m: m.group(1) + packed + m.group(2),
         html,
         count=1,
