@@ -188,8 +188,7 @@ bolls.
    marker, so a plain `.trim()` silently flattens a whole chapter into one
    paragraph.
 
-   Everything a provider marks is kept, footnote markers excepted, since the
-   embedded dataset strips those at build time. From bolls that means `<br>` becomes the renderer's `\n`, and
+   Everything a provider marks is kept, footnotes included. From bolls that means `<br>` becomes the renderer's `\n`, and
    `<i>`/`<e>`/`<b>` (translator-supplied words in NKJV and KJV, AMP's bracketed
    amplifications, CSB's OT quotations) survive `escapeHtml()` as control
    characters and come back as `<em>`/`<strong>` in `renderVerseStream()`.
@@ -239,6 +238,29 @@ bolls.
 for poetry. A source with no structure info renders as one flowing paragraph.
 That's graceful degradation, not a bug.
 
+### Footnotes
+A verse carries an optional `notes` array, and its text carries `\u0005i\u0005`
+markers naming the index. `renderVerseStream()` flattens the passage's notes,
+renumbers the markers, and emits a `<button popovertarget>` plus a
+`<span popover>` per note: the Popover API does the opening and closing with no
+script of ours, so the Invoker Commands API is not needed. Markers are lettered
+(a, b, ... aa) precisely because verse numbers are numbered; the two sit side by
+side and must not be confused.
+
+Where each source keeps them:
+- **Embedded**: `<f>` and `<x>` from the USFX, captured by `build-embedded.py`
+  into the third element of a verse entry. 2,867 notes, which cost 74KB of the
+  compressed blob.
+- **api.bible**: `include-notes=true`, then `name: "note"` items whose `fr`/`ft`
+  children read fine run together. Two traps there: `char` style `sup` is the
+  printed punctuation *between* two note callers and would otherwise land in the
+  verse as a stray comma, and api.bible brackets some dashes with `#`, which is
+  markup rather than text.
+- **bolls**: bodies live in a separate `comment` field, one per `<br>`, each
+  opening with the marker that matches a `<sup>` in the verse. Several editions
+  (ESV, NKJV, NLT) supply bodies with no marker in the text at all, so those
+  attach to the end of the verse instead of being dropped. NIV has none.
+
 ### The wider canon and its fallbacks
 The 10 wider-canon books deliberately have **no bolls number**. bolls renumbers
 that part of the canon per translation (76 is the Prayer of Manasseh in its KJV
@@ -264,10 +286,11 @@ The manual recipe, for reference: fetch `eng-web.usfx.xml` from
 `seven1m/open-bibles`, strip `<f>`/`<x>`/`<d>` blocks (footnotes, cross-refs,
 Psalm superscriptions, all dropped since none are rendered anywhere), walk
 `<book>`/`<c>`/`<v>`/`<ve>` tags to build
-`{BOOK_ID: [[[verseNum, text], ...], ...]}` (array of chapters, each an array of
-`[verseNum, text]` pairs; verse numbers aren't always contiguous, e.g. Sirach, so
-don't assume `index = verse - 1`), track `<p>`/`<q>`/`<b/>` as paragraph/line
-markers per the scheme above, merge `LJE` into `BAR[5]` (0-indexed chapter 6),
+`{BOOK_ID: [[[verseNum, text, notes?], ...], ...]}` (array of chapters, each an
+array of `[verseNum, text]` pairs with an optional third element holding the
+verse's footnotes; verse numbers aren't always contiguous, e.g. Sirach, so don't
+assume `index = verse - 1`), track `<p>`/`<q>`/`<b/>` as paragraph/line markers
+per the scheme above, merge `LJE` into `BAR[5]` (0-indexed chapter 6),
 filter to the 83 needed book IDs, `json.dumps(..., separators=(',',':'))`,
 `gzip.compress(..., 9)`, `base64.b64encode`, drop into the
 `<script type="text/plain" id="embeddedWebDataGz">` tag before `</body>`.

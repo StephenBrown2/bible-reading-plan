@@ -41,8 +41,10 @@ DEUTERO = "TOB JDT WIS SIR BAR 1MA 2MA".split()
 WIDER = "ESG S3Y SUS BEL 1ES 2ES MAN PS2 3MA 4MA".split()
 WANTED = set(CANON) | set(DEUTERO) | set(WIDER)
 
-DROP = {"f", "x", "d", "id", "ide", "h", "toc", "cl", "rem", "fig", "ref"}
+DROP = {"d", "id", "ide", "h", "toc", "cl", "rem", "fig"}
+NOTES = {"f", "x"}          # footnote and cross-reference, kept and marked
 PARA_BREAK, LINE_BREAK = "\n\n", "\n"
+NOTE_MARK = "\u0005"        # renderVerseStream() turns these into popover buttons
 
 
 def parse(xml_text: str) -> dict:
@@ -50,7 +52,7 @@ def parse(xml_text: str) -> dict:
     books, state = {}, {}
 
     def reset(book_id):
-        state.update(book=[], chapter=None, verse=None, pending="", id=book_id)
+        state.update(book=[], chapter=None, verse=None, pending="", id=book_id, note=None)
 
     def emit(text):
         """Append text to the open verse, if one is open.
@@ -59,6 +61,9 @@ def parse(xml_text: str) -> dict:
         leaves its tail carrying the separating space, so "God<f>..</f> created"
         must not become "Godcreated". Runs are tidied once in finalise().
         """
+        if state["note"] is not None:
+            state["note"].append(text)
+            return
         if state["verse"] is None or not text:
             return
         piece = re.sub(r"\s+", " ", text)
@@ -80,6 +85,29 @@ def parse(xml_text: str) -> dict:
     def walk(elem):
         tag = elem.tag
         if tag in DROP:
+            return
+        if tag in NOTES:
+            # A note interrupts the verse: mark its position, collect its text
+            # aside, then carry on. Nested <fr>/<ft>/<fq> just add their text.
+            verse = state["verse"]
+            if verse is None:
+                return
+            notes = verse[2] if len(verse) > 2 else None
+            if notes is None:
+                notes = []
+                verse.append(notes)
+            state["note"] = []
+            if elem.text:
+                state["note"].append(elem.text)
+            for child in elem:
+                walk(child)
+                if child.tail:
+                    state["note"].append(child.tail)
+            body = re.sub(r"\s+", " ", "".join(state["note"])).strip()
+            state["note"] = None
+            if body:
+                verse[1] += f"{NOTE_MARK}{len(notes)}{NOTE_MARK}"
+                notes.append(body)
             return
         if tag == "book":
             reset(elem.get("id"))
@@ -122,6 +150,9 @@ def parse(xml_text: str) -> dict:
     if "LJE" in books and "BAR" in books:
         books["BAR"] = books["BAR"][:5] + [c for c in books["LJE"] if c]
     def finalise(text):
+        # A marker can end up with a space in front of it when the note sat after
+        # a word; the reader adds its own spacing, so close that gap here.
+        text = re.sub(r" +(" + NOTE_MARK + r")", r"\1", text)
         text = re.sub(r" +", " ", text)
         text = re.sub(r" *\n *", "\n", text)
         return re.sub(r"^ +", "", text.rstrip())
@@ -129,7 +160,14 @@ def parse(xml_text: str) -> dict:
     def clean(chapter):
         # Verse numbers that carry no text (Sirach 1:5, 1:7, 1:21) are dropped,
         # which is why verse numbers are not contiguous and index != verse - 1.
-        return [[v, finalise(t)] for v, t in chapter if finalise(t)]
+        out = []
+        for entry in chapter:
+            text = finalise(entry[1])
+            if not text:
+                continue
+            notes = entry[2] if len(entry) > 2 else []
+            out.append([entry[0], text, notes] if notes else [entry[0], text])
+        return out
 
     return {
         b: [c for c in (clean(ch) for ch in chapters) if c]

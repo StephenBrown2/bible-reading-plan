@@ -147,6 +147,14 @@ not by freshness:
    paragraph and poetry structure, so it is the *first* choice for WEB rather
    than a last resort, and it means the plan works with no network at all.
 
+## Footnotes
+
+Translator notes and cross-references appear as small lettered markers in the
+text. Click one and it opens in a popover; click anywhere else, or press Escape,
+to dismiss it. Coverage depends on the translation: the World English Bible and
+the api.bible editions carry them throughout, and of the bolls-served
+translations the ESV, NKJV, NLT and CSB have them while the NIV has none.
+
 ## Privacy
 
 There is no backend and no analytics. Your seed, settings and progress live in
