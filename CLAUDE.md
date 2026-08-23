@@ -165,10 +165,16 @@ edition without the book answers with a 404 or an empty chapter, which falls
 through to the next attempt on its own.
 
 Both `<select>` controls are built from `TEXT_TRANSLATIONS` by
-`versionOptions()`. The passage one sits inside `#textPanel`, above the text it
-governs, so it appears only with Show text, and applies on `change`: a
-translation changes only which text is fetched, never the pacing or the plan's
-position, so it needs no Apply. The "Read online" one keeps its own card and
+`versionOptions()`. The passage one sits on the text panel's heading line, in
+place of the translation name that used to be printed there, so it appears only
+with Show text and applies on `change`: a translation changes only which text is
+fetched, never the pacing or the plan's position, so it needs no Apply.
+
+Since the picker shows what was *asked for*, `#textFallbackNote` covers what
+actually arrived, and only when the two differ ("showing World English Bible"
+beside a picker reading CSB). Don't drop it as redundant: a requested edition
+that a provider doesn't carry falls back silently otherwise, and the reader has
+no way to tell which translation is on screen. The "Read online" one keeps its own card and
 filters to entries flagged `deutero: true` when the day's book needs it.
 
 `version` stays out of the shareable link until it is actually chosen, since the

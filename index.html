@@ -122,8 +122,15 @@
     border-radius:4px; background:var(--paper); color:var(--ink);
   }
   .panel .minirow{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-soft); }
-  /* Sits above the passage it applies to, so it appears and disappears with it. */
-  .translation-row{ margin-bottom:14px; }
+  /* The picker stands in for the translation name that used to be printed after
+     the heading, so it shares that line rather than sitting on its own. */
+  .panel-head{ display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+  .panel-head-label{
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft);
+  }
+  .panel-head select{ font-size:10px; padding:6px 12px; }
+  /* Only appears when the edition on screen isn't the one asked for. */
+  .fallback-note{ font-size:11px; color:var(--ink-soft); font-style:italic; }
   /* Plain footer: after everything else in normal flow, never sticky. */
   .share{ margin-top:34px; padding-top:18px; border-top:1px solid var(--line); }
   .share label{
@@ -224,10 +231,11 @@
   <div class="confirm" id="confirmMsg"></div>
 
   <div class="panel" id="textPanel">
-    <div class="row translation-row">
+    <div class="panel-head">
+      <span class="panel-head-label">Passage text</span>
       <select id="versionInput"></select>
+      <span class="fallback-note" id="textFallbackNote"></span>
     </div>
-    <label id="textPanelLabel">Passage text</label>
     <div class="passage-text" id="passageText">Loading…</div>
   </div>
 
@@ -982,10 +990,14 @@ function renderVerseStream(verses){
 
 function renderPassageText(result){
   const el = document.getElementById("passageText");
-  // Name the edition actually shown: a requested ?version= the text providers
-  // don't carry falls back silently otherwise.
-  document.getElementById("textPanelLabel").textContent =
-    result.translation ? `Passage text (${result.translation})` : "Passage text";
+  // The picker names what was asked for; this names what arrived, but only when
+  // they differ, which is the one case a reader could otherwise be misled by.
+  const asked = REQUESTED_VERSION
+    ? (TEXT_TRANSLATIONS[REQUESTED_VERSION.toUpperCase()] || {}).label
+    : TEXT_TRANSLATIONS.WEB.label;
+  const arrived = result.translation;
+  document.getElementById("textFallbackNote").textContent =
+    (arrived && asked && arrived !== asked) ? `showing ${arrived}` : "";
   if (!result.live){
     el.innerHTML = `<p style="font-size:13px;color:var(--ink-soft)">Live text wasn't reachable, so this is an estimate rather than the actual passage. Use "Read online" below for the text.</p>`;
     return;
