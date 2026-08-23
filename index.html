@@ -122,14 +122,23 @@
     border-radius:4px; background:var(--paper); color:var(--ink);
   }
   .panel .minirow{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-soft); }
+  /* Sits above the passage it applies to, so it appears and disappears with it. */
+  .translation-row{ margin-bottom:14px; }
   /* Plain footer: after everything else in normal flow, never sticky. */
   .share{ margin-top:34px; padding-top:18px; border-top:1px solid var(--line); }
   .share label{
     display:block; letter-spacing:.08em; text-transform:uppercase; font-size:11px;
     color:var(--ink-soft); margin-bottom:8px;
   }
+  .share-row{ display:flex; align-items:flex-start; gap:12px; }
+  .share-row #shareLink{
+    flex:1; font-size:12px; line-height:1.6; color:var(--ink-soft);
+    overflow-wrap:anywhere; cursor:pointer;
+  }
+  .share-row #shareLink:hover{ color:var(--ink); }
+  .share-row button{ flex:0 0 auto; }
   .share .hint{ font-size:11px; color:var(--ink-soft); margin-top:6px; line-height:1.5; }
-  .panel textarea, .share textarea{
+  .panel textarea{
     width:100%; font-family:inherit; font-size:12px; padding:8px 10px; border:1px solid var(--line);
     border-radius:4px; background:var(--paper); color:var(--ink); resize:none; height:44px;
   }
@@ -207,7 +216,7 @@
 
   <div class="actions">
     <button id="textBtn">Show text</button>
-    <button id="translationBtn">Translation</button>
+    <button id="readBtn">Read online</button>
     <button id="orderBtn">View full order</button>
     <button id="seedBtn">Change seed</button>
     <button id="resetBtn">Restart plan</button>
@@ -215,21 +224,15 @@
   <div class="confirm" id="confirmMsg"></div>
 
   <div class="panel" id="textPanel">
+    <div class="row translation-row">
+      <select id="versionInput"></select>
+    </div>
     <label id="textPanelLabel">Passage text</label>
     <div class="passage-text" id="passageText">Loading…</div>
   </div>
 
-  <div class="panel" id="translationPanel">
-    <label>Passage translation</label>
-    <div class="row">
-      <select id="versionInput"></select>
-    </div>
-    <div class="hint">
-      Applies straight away. Editions the text providers don't carry steer the
-      link below only, leaving the passage in the World English Bible; the
-      heading above the text always names what you are actually reading.
-    </div>
-    <label style="margin-top:14px">Read online in another translation</label>
+  <div class="panel" id="readPanel">
+    <label>Read online in another translation</label>
     <div class="row">
       <select id="versionSelect"></select>
       <span class="readlink"><a id="readLink" href="#" target="_blank" rel="noopener">Open ↗</a></span>
@@ -264,8 +267,11 @@
   </div>
 
   <footer class="share">
-    <label for="shareLink">Shareable link</label>
-    <textarea id="shareLink" readonly onclick="this.select()"></textarea>
+    <label>Shareable link</label>
+    <div class="share-row">
+      <span id="shareLink" role="button" tabindex="0" title="Click to copy"></span>
+      <button id="copyLinkBtn" type="button">Copy</button>
+    </div>
     <div class="hint">Hands anyone who opens it this exact plan, on this exact schedule.</div>
   </footer>
 </div>
@@ -1118,7 +1124,7 @@ function updateShareLink(state){
   url.searchParams.set("wpm", WORDS_PER_MINUTE);
   if (REQUESTED_VERSION) url.searchParams.set("version", REQUESTED_VERSION);
   if (state && state.startDate) url.searchParams.set("startDate", state.startDate);
-  document.getElementById("shareLink").value = url.toString();
+  document.getElementById("shareLink").textContent = url.toString();
   try{ history.replaceState(null, "", url.toString()); }catch(e){}
 }
 
@@ -1214,7 +1220,7 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
 });
 
 function togglePanel(id){
-  ["textPanel","translationPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
+  ["textPanel","readPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
   document.getElementById(id).classList.toggle("open");
 }
 // Stepping forward commits the day being left; stepping back only re-reads.
@@ -1237,7 +1243,34 @@ document.getElementById("catchupList").addEventListener("click", (e) => {
 });
 
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
-document.getElementById("translationBtn").addEventListener("click", () => togglePanel("translationPanel"));
+document.getElementById("readBtn").addEventListener("click", () => togglePanel("readPanel"));
+
+// Copy the share link, and say so on the button. Where the Clipboard API is
+// unavailable or refused (insecure context, permission denied), select the text
+// so it can still be copied by hand.
+async function copyShareLink(){
+  const el = document.getElementById("shareLink");
+  const btn = document.getElementById("copyLinkBtn");
+  let label = "Copied";
+  try{
+    await navigator.clipboard.writeText(el.textContent);
+  }catch(e){
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    label = "Select and copy";
+  }
+  btn.textContent = label;
+  clearTimeout(copyShareLink.reset);
+  copyShareLink.reset = setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+}
+document.getElementById("copyLinkBtn").addEventListener("click", copyShareLink);
+document.getElementById("shareLink").addEventListener("click", copyShareLink);
+document.getElementById("shareLink").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " "){ e.preventDefault(); copyShareLink(); }
+});
 document.getElementById("orderBtn").addEventListener("click", () => togglePanel("orderPanel"));
 document.getElementById("seedBtn").addEventListener("click", () => togglePanel("seedPanel"));
 
