@@ -132,9 +132,10 @@
   .passage-text .note-ref{
     font-family:inherit; font-size:.7em; vertical-align:super; line-height:0;
     color:var(--ribbon); font-style:italic; background:none; border:none;
-    padding:0; margin:0 .35em 0 1px; border-radius:0; letter-spacing:0;
+    padding:0; margin:0 0 0 1px; border-radius:0; letter-spacing:0;
     text-transform:none; cursor:pointer;
   }
+  .passage-text .note-ref-abutting{ margin-right:.35em; }
   .passage-text .note-ref:hover{ text-decoration:underline; }
   .note-body{
     max-width:min(34rem, 90vw); font-size:14px; line-height:1.6;
@@ -143,6 +144,17 @@
     box-shadow:0 6px 24px rgba(0,0,0,.14);
   }
   .note-body::backdrop{ background:rgba(0,0,0,.06); }
+  /* Anchor the note to its own marker where the browser can; elsewhere the
+     popover keeps its centred default, which is why this is a @supports block
+     rather than a plain rule. */
+  @supports (anchor-name: --a){
+    .note-body{
+      position-area: block-end span-inline-end;
+      position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+      margin:4px 0 0 0;
+      max-width:min(28rem, 88vw);
+    }
+  }
   .readlink a{ color:var(--ribbon); text-decoration:none; border-bottom:1px solid var(--ribbon-dim); }
 </style>
 </head>
@@ -898,13 +910,18 @@ function renderVerseStream(verses){
   NOTE_SEQ += notes.length;
   const renderLine = (line) => line
     .replace(/\u0000(\d+)\u0000/g, '<sup class="verse-num">$1</sup>')
-    .replace(new RegExp(NOTE_MARK + "(\\d+)" + NOTE_MARK, "g"), (_, n) => {
+    .replace(new RegExp(NOTE_MARK + "(\\d+)" + NOTE_MARK, "g"), (match, n, offset, whole) => {
       const id = `note-${base + Number(n)}`;
       const label = noteLabel(Number(n));
-      // Popover API: the button opens the panel with no script of our own.
-      return `<button type="button" class="note-ref" popovertarget="${id}"` +
-             ` aria-label="Footnote ${label}">${label}</button>` +
-             `<span class="note-body" id="${id}" popover>${escapeHtml(notes[Number(n) - 1])}</span>`;
+      // Only two markers running together need separating; one followed by a
+      // space already has its gap.
+      const abutting = whole[offset + match.length] === NOTE_MARK ? " note-ref-abutting" : "";
+      // Popover API opens the panel with no script of ours; the anchor name ties
+      // it to this marker for browsers that can position against it.
+      return `<button type="button" class="note-ref${abutting}" popovertarget="${id}"` +
+             ` style="anchor-name:--${id}" aria-label="Footnote ${label}">${label}</button>` +
+             `<span class="note-body" id="${id}" popover style="position-anchor:--${id}">` +
+             `${escapeHtml(notes[Number(n) - 1])}</span>`;
     })
     .replace(new RegExp(EM_OPEN, "g"), "<em>").replace(new RegExp(EM_CLOSE, "g"), "</em>")
     .replace(new RegExp(STRONG_OPEN, "g"), "<strong>").replace(new RegExp(STRONG_CLOSE, "g"), "</strong>");

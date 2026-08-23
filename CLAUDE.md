@@ -247,6 +247,17 @@ script of ours, so the Invoker Commands API is not needed. Markers are lettered
 (a, b, ... aa) precisely because verse numbers are numbered; the two sit side by
 side and must not be confused.
 
+Each pair gets a matching `anchor-name` / `position-anchor` so the note opens
+beside its own marker, with `position-try-fallbacks` flipping it when it would
+run off screen. That lives in an `@supports (anchor-name: --a)` block; without
+anchor positioning the popover keeps its centred default, which is a fine
+fallback rather than a broken one.
+
+Only a marker immediately followed by *another* marker gets trailing space
+(`.note-ref-abutting`). The renderer decides that by looking at the character
+after the match, because CSS sibling selectors can't see the text node that
+separates the common case.
+
 Where each source keeps them:
 - **Embedded**: `<f>` and `<x>` from the USFX, captured by `build-embedded.py`
   into the third element of a verse entry. 2,867 notes, which cost 74KB of the

@@ -150,8 +150,9 @@ not by freshness:
 ## Footnotes
 
 Translator notes and cross-references appear as small lettered markers in the
-text. Click one and it opens in a popover; click anywhere else, or press Escape,
-to dismiss it. Coverage depends on the translation: the World English Bible and
+text. Click one and it opens in a popover beside the marker; click anywhere
+else, or press Escape, to dismiss it. In browsers without CSS anchor
+positioning the note opens centred instead. Coverage depends on the translation: the World English Bible and
 the api.bible editions carry them throughout, and of the bolls-served
 translations the ESV, NKJV, NLT and CSB have them while the NIV has none.
 
