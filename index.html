@@ -151,6 +151,11 @@
     .note-body{
       position-area: block-end span-inline-end;
       position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+      /* Without this a marker near the right edge never flips: the box has room
+         to fit if it narrows, so nothing overflows and no fallback is tried, and
+         the note ends up a squeezed column. Ordering by width makes the browser
+         weigh the corners and take the roomiest. */
+      position-try-order: most-width;
       margin:4px 0 0 0;
       max-width:min(28rem, 88vw);
     }

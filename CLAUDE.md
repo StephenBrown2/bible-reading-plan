@@ -265,7 +265,11 @@ side and must not be confused.
 
 Each pair gets a matching `anchor-name` / `position-anchor` so the note opens
 beside its own marker, with `position-try-fallbacks` flipping it when it would
-run off screen. That lives in an `@supports (anchor-name: --a)` block; without
+run off screen. `position-try-order: most-width` is doing real work there and
+must not be dropped: a fallback is only tried when the box *overflows*, and a
+box near the right edge doesn't overflow, it narrows to fit. Without the
+ordering, a note next to the right margin renders as a squeezed column instead
+of flipping to the roomier corner. That lives in an `@supports (anchor-name: --a)` block; without
 anchor positioning the popover keeps its centred default, which is a fine
 fallback rather than a broken one.
 
