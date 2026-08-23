@@ -269,7 +269,15 @@ run off screen. `position-try-order: most-width` is doing real work there and
 must not be dropped: a fallback is only tried when the box *overflows*, and a
 box near the right edge doesn't overflow, it narrows to fit. Without the
 ordering, a note next to the right margin renders as a squeezed column instead
-of flipping to the roomier corner. That lives in an `@supports (anchor-name: --a)` block; without
+of flipping to the roomier corner. The `--note-wide` fallback
+(`block-end span-all`) is the last option: when a long note finds neither corner
+roomy, it spans the whole inline axis rather than the side its marker happens to
+sit on.
+
+Test this at a phone width, not a desktop one. Every marker sits far from the
+edge on a wide viewport, so the bug is invisible there. Resizing the browser
+window only works if it isn't maximized; a maximized window reports the resize
+as successful and ignores it. That lives in an `@supports (anchor-name: --a)` block; without
 anchor positioning the popover keeps its centred default, which is a fine
 fallback rather than a broken one.
 
