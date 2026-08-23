@@ -270,11 +270,18 @@ can never squeeze it into a narrow column, in any engine. Only `flip-block` is a
 fallback, since only the vertical direction can genuinely run out of room.
 
 The tempting alternative, a corner like `span-inline-end` plus
-`position-try-order: most-width`, works in Chrome and **fails in Firefox 147**,
-which ships `anchor-name`, `position-area` and `position-try-fallbacks` but not
-`position-try-order` until 148. It fails invisibly, too: the `@supports
-(anchor-name: --a)` guard passes, the note anchors correctly, and only the width
-is wrong. Don't reintroduce it.
+`position-try-order: most-width`, was tried and reverted. It looked right in
+Chrome and still squeezed in Firefox for Android 154, which has every property
+involved, so the two engines disagree somewhere in how the ordering is applied.
+Rather than chase that, `span-all` sidesteps the question: with the full inline
+axis there is no narrower option for an engine to choose. Don't reintroduce the
+corner-plus-ordering version on the strength of a Chrome screenshot.
+
+Anchor positioning itself needs Firefox 147+ / Chrome 125+ / Safari 26+, and
+`position-anchor` specifically needs Firefox 151+ / Chrome 151+. Below those, the
+`@supports` guard drops the whole block and the popover centres, which is fine.
+A `<button popovertarget>` is also its popover's *implicit* anchor, so the
+positioning still binds even where `position-anchor` is ignored.
 
 Test this at a phone width, not a desktop one. Every marker sits far from the
 edge on a wide viewport, so the bug is invisible there. Resizing the browser
