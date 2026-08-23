@@ -264,20 +264,23 @@ script of ours, so the Invoker Commands API is not needed. Markers are lettered
 side and must not be confused.
 
 Each pair gets a matching `anchor-name` / `position-anchor` so the note opens
-beside its own marker, with `position-try-fallbacks` flipping it when it would
-run off screen. `position-try-order: most-width` is doing real work there and
-must not be dropped: a fallback is only tried when the box *overflows*, and a
-box near the right edge doesn't overflow, it narrows to fit. Without the
-ordering, a note next to the right margin renders as a squeezed column instead
-of flipping to the roomier corner. The `--note-wide` fallback
-(`block-end span-all`) is the last option: when a long note finds neither corner
-roomy, it spans the whole inline axis rather than the side its marker happens to
-sit on.
+beside its own marker. The area is `block-end span-all`, and that choice is
+load-bearing: giving the note the whole inline axis means a marker near an edge
+can never squeeze it into a narrow column, in any engine. Only `flip-block` is a
+fallback, since only the vertical direction can genuinely run out of room.
+
+The tempting alternative, a corner like `span-inline-end` plus
+`position-try-order: most-width`, works in Chrome and **fails in Firefox 147**,
+which ships `anchor-name`, `position-area` and `position-try-fallbacks` but not
+`position-try-order` until 148. It fails invisibly, too: the `@supports
+(anchor-name: --a)` guard passes, the note anchors correctly, and only the width
+is wrong. Don't reintroduce it.
 
 Test this at a phone width, not a desktop one. Every marker sits far from the
 edge on a wide viewport, so the bug is invisible there. Resizing the browser
-window only works if it isn't maximized; a maximized window reports the resize
-as successful and ignores it. That lives in an `@supports (anchor-name: --a)` block; without
+window only works if it isn't maximized or tiled; otherwise the resize reports
+success and is ignored, and the fallback is to pin `#textPanel` to the viewport
+edge and read the geometry from there. That lives in an `@supports (anchor-name: --a)` block; without
 anchor positioning the popover keeps its centred default, which is a fine
 fallback rather than a broken one.
 

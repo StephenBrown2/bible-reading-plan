@@ -147,18 +147,16 @@
   /* Anchor the note to its own marker where the browser can; elsewhere the
      popover keeps its centred default, which is why this is a @supports block
      rather than a plain rule. */
-  /* A last resort for a long note in a narrow viewport: span the whole inline
-     axis rather than only the side the marker happens to sit on. */
-  @position-try --note-wide{ position-area: block-end span-all; }
   @supports (anchor-name: --a){
     .note-body{
-      position-area: block-end span-inline-end;
-      position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline, --note-wide;
-      /* Without this a marker near the right edge never flips: the box has room
-         to fit if it narrows, so nothing overflows and no fallback is tried, and
-         the note ends up a squeezed column. Ordering by width makes the browser
-         weigh the corners and take the roomiest. */
-      position-try-order: most-width;
+      /* span-all, not a corner: the note gets the whole inline axis, so it can
+         never be squeezed into a column by a marker sitting near an edge. The
+         obvious alternative, a corner plus `position-try-order: most-width`,
+         quietly fails on Firefox 147, which ships the rest of anchor
+         positioning but not that property. Only the block flip is a fallback,
+         since only the vertical direction can genuinely run out of room. */
+      position-area: block-end span-all;
+      position-try-fallbacks: flip-block;
       margin:4px 0 0 0;
       max-width:min(28rem, 88vw);
     }
