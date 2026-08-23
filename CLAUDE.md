@@ -269,13 +269,12 @@ load-bearing: giving the note the whole inline axis means a marker near an edge
 can never squeeze it into a narrow column, in any engine. Only `flip-block` is a
 fallback, since only the vertical direction can genuinely run out of room.
 
-The tempting alternative, a corner like `span-inline-end` plus
-`position-try-order: most-width`, was tried and reverted. It looked right in
-Chrome and still squeezed in Firefox for Android 154, which has every property
-involved, so the two engines disagree somewhere in how the ordering is applied.
-Rather than chase that, `span-all` sidesteps the question: with the full inline
-axis there is no narrower option for an engine to choose. Don't reintroduce the
-corner-plus-ordering version on the strength of a Chrome screenshot.
+A corner like `span-inline-end` plus `position-try-order: most-width` also
+works, and was what shipped first. It was replaced because `span-all` needs no
+second property to behave: with the full inline axis there is no narrower option
+for an engine to pick, so nothing depends on how any given engine orders its
+fallbacks. Both were reported broken in Firefox at one point; both times that
+turned out to be a stale cache, not the CSS.
 
 Anchor positioning itself needs Firefox 147+ / Chrome 125+ / Safari 26+, and
 `position-anchor` specifically needs Firefox 151+ / Chrome 151+. Below those, the
@@ -284,7 +283,10 @@ A `<button popovertarget>` is also its popover's *implicit* anchor, so the
 positioning still binds even where `position-anchor` is ignored.
 
 Test this at a phone width, not a desktop one. Every marker sits far from the
-edge on a wide viewport, so the bug is invisible there. Resizing the browser
+edge on a wide viewport, so the bug is invisible there. And when checking a fix
+on a real device, force a cache bypass first: Pages serves the page with
+`cache-control: max-age=600`, and two separate browsers hold two separate stale
+copies. Two rounds of this bug were chased as CSS before turning out to be that. Resizing the browser
 window only works if it isn't maximized or tiled; otherwise the resize reports
 success and is ignored, and the fallback is to pin `#textPanel` to the viewport
 edge and read the geometry from there. That lives in an `@supports (anchor-name: --a)` block; without
