@@ -56,6 +56,9 @@ A reading is always one chapter at most. A chapter longer than the ceiling is
 split across days at a verse boundary, and a chapter shorter than it is simply a
 short day. Chapters are never merged to fill the time, so there is no minimum.
 
+Splits are even rather than greedy: Matthew 5 comes out as two days of about 515
+and 550 words, not 888 and a dangling 177.
+
 ```
 ?time=5      the default
 ?time=15     longer daily readings

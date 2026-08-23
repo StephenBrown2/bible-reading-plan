@@ -612,9 +612,24 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
   // the wrong verse otherwise. Verse numbers are read back off the chosen
   // verses for anything the reader sees.
   const verses = chData.verses;
+  const words = verses.map(x => wordCount(x.text));
+
+  // Split what's left of the chapter into even days rather than filling each
+  // day to the ceiling: greedy packing leaves a stub at the end (Matthew 5 came
+  // out 888 words then 177). The remaining words decide how many days are left,
+  // and today takes its fair share. Recomputed each day, so changing `time`
+  // mid-chapter simply rebalances what remains.
+  const remaining = words.slice(versePointer - 1).reduce((a, b) => a + b, 0);
+  const target = remaining / Math.max(1, Math.ceil(remaining / TARGET_MAX_WORDS));
+
   let v = versePointer, sum = 0;
-  while (v <= verses.length && (sum === 0 || sum + wordCount(verses[v-1].text) < TARGET_MAX_WORDS)){
-    sum += wordCount(verses[v-1].text);
+  while (v <= verses.length){
+    const w = words[v-1];
+    // A verse joins the day if its midpoint still falls inside the target, which
+    // lands nearer the target than stopping strictly under it. The ceiling still
+    // applies, and one oversized verse is always a day on its own.
+    if (sum > 0 && (sum + w / 2 > target || sum + w > TARGET_MAX_WORDS)) break;
+    sum += w;
     v++;
   }
   const reachedEnd = v > verses.length;

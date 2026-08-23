@@ -63,10 +63,21 @@ storage holds nothing.
 
 ### Pacing
 `time` (max minutes, default 5) and `wpm` (words per minute, default 180) set a
-word ceiling of `time * wpm`. A reading is **one chapter at most**: verses are
-walked until the ceiling is reached, so a chapter longer than the budget splits
-across days at a verse boundary and a short chapter is simply a short day.
-Chapters are never merged, which is why there is no lower bound.
+word ceiling of `time * wpm`. A reading is **one chapter at most**: a chapter
+longer than the ceiling splits across days at a verse boundary, and a short
+chapter is simply a short day. Chapters are never merged, which is why there is
+no lower bound.
+
+A split is **even, not greedy**. Filling each day to the ceiling leaves a stub
+(Matthew 5 used to come out 888 words then 177); instead the words left in the
+chapter decide how many days remain, `ceil(remaining / ceiling)`, and today
+takes `remaining / days`. A verse joins the day while its midpoint still falls
+inside that target, which lands nearer the target than stopping strictly under
+it. Because it is recomputed from the current position each day, changing
+`time` part-way through a chapter rebalances whatever is left rather than
+stranding it. Verified across all 1,391 chapters: coverage is exact, no day
+exceeds the ceiling, and the even rule needs no more days than the greedy one
+did.
 
 ### State model, the important part
 Progress is not "advance once per app-open." It's anchored to a `startDate`
