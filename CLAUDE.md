@@ -104,6 +104,18 @@ jumping to today. Today's entry commits as soon as it is reached, so a visitor
 with nothing owed behaves exactly as before. "Skip to today" and clicking ahead
 in the list commit everything jumped over; stepping back only re-reads.
 
+### The reading-order panel
+83 entries in a horizontally scrolled grid of 12 rows. Columns are uniform and
+as wide as the longest entry, which comes from `grid-auto-columns: 1fr` inside a
+`width: max-content` grid: `fr` tracks under a max-content constraint all take
+the width of the widest item. No measuring, and it is right even though the
+panel is `display:none` until opened, which is what defeats the obvious
+JavaScript version (a hidden element measures zero).
+
+Entries are `white-space: nowrap`. That is not only cosmetic: it keeps every row
+one line tall, so the shared row heights of a grid can't leave a gap across every
+column when one name wraps.
+
 ### Single-chapter books
 Ten books are one chapter (Obadiah, Philemon, 2-3 John, Jude, and five of the
 wider canon), where a chapter number carries no information. `referenceRange()`

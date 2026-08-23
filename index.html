@@ -82,12 +82,24 @@
   }
   .panel .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .panel .hint{ font-size:11px; color:var(--ink-soft); margin-top:4px; line-height:1.5; }
-  .order-list{
-    max-height:260px; overflow-y:auto; font-size:13px; line-height:1.9; columns:2; column-gap:18px;
+  /* Columns of a fixed fraction of the panel, scrolled sideways: the part-column
+     at the edge is the only hint that the list continues, so --cols is
+     deliberately fractional. */
+  .order-list{ overflow-x:auto; overscroll-behavior-x:contain; font-size:13px; line-height:1.9; }
+  /* Uniform columns, each as wide as the longest entry: `1fr` tracks inside a
+     max-content grid all take the width of the widest item, so no measuring is
+     needed and it is correct while the panel is still hidden. Entries never
+     wrap, which also keeps every row one line tall and the columns aligned.
+     Whatever doesn't fit is scrolled to, the part-column at the edge being the
+     hint that there is more. */
+  .order-grid{
+    display:grid; width:max-content;
+    grid-auto-flow:column;
+    grid-template-rows:repeat(12, auto);
+    grid-auto-columns:1fr;
   }
-  .order-list div{ break-inside:avoid; }
+  .order-grid div{ white-space:nowrap; padding-right:18px; }
   .order-list b{ color:var(--ribbon); font-weight:600; }
-  @media (max-width:380px){ .order-list{ columns:1; } }
   .catchup{
     margin-bottom:16px; border:1px solid var(--ribbon-dim); border-radius:2px;
     background:#fbf3ea; padding:14px 18px;
@@ -1043,8 +1055,11 @@ function render(dateKey, result){
 }
 
 function renderOrderList(){
+  // The grid wraps into columns itself; row count is set in CSS.
   document.getElementById("orderList").innerHTML =
-    ORDER.map((bi, i) => `<div>${i+1}. ${BOOKS[bi][0]}</div>`).join("");
+    `<div class="order-grid">` +
+    ORDER.map((bi, i) => `<div>${i + 1}. ${BOOKS[bi][0]}</div>`).join("") +
+    `</div>`;
 }
 
 function renderCatchUp(){
