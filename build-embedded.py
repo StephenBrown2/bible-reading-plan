@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["brotli"]
 # ///
-"""Rebuild the embedded WEB dataset in index.html from the USFX source.
+"""Build the compressed WEB dataset assets from the USFX source.
 
 Produces {BOOK_ID: [[[verseNum, text], ...], ...]} - a list of chapters, each a
 list of [verse number, text] pairs. Verse numbers are not always contiguous
@@ -16,10 +16,10 @@ and Psalm superscriptions for free since those sit outside verse ranges.
 Footnotes and cross-references are dropped explicitly, being inside them.
 
 Usage: ./build-embedded.py [--check]
-  --check  parse and report, without touching index.html
+  --check  parse and report, without writing the compressed assets
 """
 
-import base64
+import gzip
 import json
 
 import brotli
@@ -195,22 +195,23 @@ def main() -> int:
         print("wrote /tmp/rebuilt-embedded.json")
         return 0
 
+    packed = json.dumps(data, separators=(",", ":")).encode()
+    assets = {
+        pathlib.Path("web.json.br"): brotli.compress(packed, quality=11),
+        pathlib.Path("web.json.gz"): gzip.compress(packed, compresslevel=9, mtime=0),
+    }
+    for path, compressed in assets.items():
+        path.write_bytes(compressed)
+        print(f"wrote {path} ({len(compressed):,} bytes)")
+
+    # The payload used to live in an inline script tag. Remove it when the
+    # assets are rebuilt so the page remains small and never ships both forms.
     html_path = pathlib.Path("index.html")
     html = html_path.read_text()
-    if 'id="embeddedWebDataBr"' not in html:
-        print("could not find the embeddedWebDataGz script tag")
-        return 1
-    packed = base64.b64encode(
-        brotli.compress(json.dumps(data, separators=(",", ":")).encode(), quality=11)
-    ).decode()
-    new = re.sub(
-        r'(<script type="text/plain" id="embeddedWebDataBr">)[^<]+(</script>)',
-        lambda m: m.group(1) + packed + m.group(2),
-        html,
-        count=1,
-    )
-    html_path.write_text(new)
-    print(f"embedded {len(data)} books as {len(packed):,} base64 characters")
+    new = re.sub(r'\n?<script type="text/plain" id="embeddedWebDataBr">[^<]+</script>', "", html, count=1)
+    if new != html:
+        html_path.write_text(new)
+        print("removed the obsolete inline WEB payload")
     return 0
 
 

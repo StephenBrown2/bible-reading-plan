@@ -141,16 +141,13 @@ not by freshness:
    translator-supplied words shown in italics.
 2. **bolls.life** for the modern copyrighted translations no one else carries.
    Line breaks and inline emphasis, no paragraph marks.
-3. **The embedded copy.** The entire World English Bible, all 83 books,
-   brotli-compressed into the page itself and decompressed in your browser. It
+3. **The embedded copy.** The entire World English Bible, all 83 books, is in
+   two static compressed files. Firefox and Safari use brotli; Chrome uses gzip.
+   The page picks the format its native `DecompressionStream` supports, caches
+   the compressed download in `localStorage`, and decompresses it in memory. It
    carries full paragraph and poetry structure, so it is the *first* choice for
-   WEB rather than a last resort, and it means the plan works with no network at
-   all.
-
-   Chrome is the exception: it has no brotli in `DecompressionStream` (Firefox
-   147+ and Safari 18.4+ do). There the copy is skipped and the text comes from
-   the network instead, so reading works but offline reading does not, and a
-   few books of the wider canon have no source left.
+   WEB rather than a last resort. After the first download, WEB needs no further
+   asset request.
 
 ## Footnotes
 
@@ -165,8 +162,9 @@ translations the ESV, NKJV, NLT and CSB have them while the NIV has none.
 
 There is no backend and no analytics. Your seed, settings and progress live in
 your browser's `localStorage` and go nowhere else. The current chapter is cached
-there too, and older ones are dropped as the plan moves on. The only outbound requests
-are for passage text, and even those stop if you read the WEB translation.
+there too, and older ones are dropped as the plan moves on. The compressed WEB
+asset is also cached there after its first download. The only outbound requests
+are for passage text and that one-time WEB asset download.
 
 ## Development
 
