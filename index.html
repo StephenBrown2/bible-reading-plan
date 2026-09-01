@@ -66,6 +66,7 @@
   .action-link{ display:inline-block; text-decoration:none; }
   button:hover, .action-link:hover{ border-color:var(--ribbon-dim); color:var(--ribbon); }
   button:focus-visible, select:focus-visible{ outline:2px solid var(--ribbon); outline-offset:2px; }
+  .actions button[disabled]{ opacity:.4; cursor:default; }
   .loading{ text-align:center; color:var(--ink-soft); padding:60px 0; font-size:14px; }
   .confirm{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:10px; }
   .panel{
@@ -219,12 +220,28 @@
 
   <div class="actions">
     <button id="textBtn">Show text</button>
+    <button id="summaryBtn">Show summary</button>
     <a id="readBtn" class="action-link" href="#" target="_blank" rel="noopener">Read online</a>
     <button id="orderBtn">View full order</button>
+    <button id="readingPrev">Previous</button>
     <button id="seedBtn">Change seed</button>
     <button id="resetBtn">Restart plan</button>
+    <button id="readingNext">Next</button>
   </div>
   <div class="confirm" id="confirmMsg"></div>
+
+  <div class="panel" id="summaryPanel">
+    <div class="panel-head">
+      <span class="panel-head-label">The gist</span>
+      <select id="summaryToneInput">
+        <option value="plain">Plain</option>
+        <option value="dry">Dry</option>
+        <option value="cheeky">Cheeky</option>
+      </select>
+      <span class="fallback-note" id="summaryToneNote"></span>
+    </div>
+    <div class="passage-text" id="summaryText">Loading…</div>
+  </div>
 
   <div class="panel" id="textPanel">
     <div class="panel-head">
@@ -288,6 +305,14 @@ let WORDS_PER_MINUTE = 180;
 let MAX_MINUTES = 5;
 let TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE; // strict upper bound
 let REQUESTED_VERSION = null; // optional translation code, passed through to the live text API
+// Which voice the summaries are written in. Purely a display preference, like
+// the translation picker: it changes no pacing, no position and no plan key.
+// Storage order in the asset, and the order the picker offers them. Plain is
+// first because it is the one a reader catching up actually needs; the two
+// joke tones are the flourish.
+const SUMMARY_TONES = ["plain", "dry", "cheeky"];
+const SUMMARY_TONE_KEY = "bible-plan-summary-tone";
+let SUMMARY_TONE = SUMMARY_TONES[0];
 // Seeds are generated on first use rather than fixed, so two people who each
 // open the bare page get different plans. Base58 (no 0/O/I/l) keeps a seed
 // readable aloud and safe to retype. runPlan() writes the active seed back into
@@ -652,16 +677,17 @@ async function fetchFromBolls(bookId, chapterNum, translation){
   if (!verses.length) return null;
   return { verses };
 }
-// The whole World English Bible, deuterocanon and wider canon included, built
-// from seven1m/open-bibles with paragraph structure and footnotes intact. The
-// page chooses brotli where the native decompressor supports it, otherwise gzip
-// for Chrome. The first downloaded compressed asset is retained in localStorage
-// so later readings do not need another request.
-let EMBEDDED_WEB_PROMISE = null;
-const EMBEDDED_WEB_CACHE_PREFIX = "bible-embedded-web::v1::";
-const EMBEDDED_WEB_ASSETS = [
-  { format: "brotli", path: "web.json.br" },
-  { format: "gzip", path: "web.json.gz" }
+// Two static datasets ship compressed beside the page: the whole World English
+// Bible (deuterocanon and wider canon included, paragraph structure and
+// footnotes intact, built from seven1m/open-bibles), and one cheeky summary per
+// day's reading. Each is published as both brotli and gzip; the page downloads
+// only the format its native decompressor supports, brotli in Firefox/Safari
+// and gzip in Chrome. The downloaded bytes are retained in localStorage so a
+// later visit needs no request, and each is fetched at most once per session,
+// the first time something asks for it.
+const COMPRESSED_FORMATS = [
+  { format: "brotli", ext: "br" },
+  { format: "gzip", ext: "gz" }
 ];
 function bytesToBase64(bytes){
   let binStr = "";
@@ -674,8 +700,8 @@ function base64ToBytes(b64){
   for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
   return bytes;
 }
-function supportedEmbeddedAsset(){
-  for (const asset of EMBEDDED_WEB_ASSETS){
+function supportedCompressedFormat(){
+  for (const asset of COMPRESSED_FORMATS){
     try{
       new DecompressionStream(asset.format);
       return asset;
@@ -683,31 +709,44 @@ function supportedEmbeddedAsset(){
   }
   return null;
 }
-async function loadEmbeddedWeb(){
+// Every failure path returns {}: no supported decompressor, a missing asset, a
+// full quota. The callers all treat an absent book as "not from here" and move
+// on, so a broken dataset degrades instead of throwing.
+async function loadCompressedJson(base, namespace, version){
   try{
-    const asset = supportedEmbeddedAsset();
+    const asset = supportedCompressedFormat();
     if (!asset) return {};
-    const cacheKey = EMBEDDED_WEB_CACHE_PREFIX + asset.format;
+    const cacheKey = `${namespace}::${version}::${asset.format}`;
     let packed = load(cacheKey, null);
     if (!packed){
-      const res = await fetch(asset.path);
+      const res = await fetch(`${base}.${asset.ext}`);
       if (!res.ok) return {};
       packed = bytesToBase64(new Uint8Array(await res.arrayBuffer()));
+      // A rebuilt asset arrives under a new version and the superseded copy is
+      // dead weight against a 5MB origin quota, so it goes now rather than
+      // never. Same reasoning as pruneChapterCache().
+      try{
+        for (const key of Object.keys(localStorage))
+          if (key.startsWith(namespace + "::") && key !== cacheKey) localStorage.removeItem(key);
+      }catch(e){}
       save(cacheKey, packed);
     }
     const ds = new DecompressionStream(asset.format);
-    const bytes = base64ToBytes(packed);
-    const stream = new Blob([bytes]).stream().pipeThrough(ds);
-    const text = await new Response(stream).text();
-    return JSON.parse(text);
+    const stream = new Blob([base64ToBytes(packed)]).stream().pipeThrough(ds);
+    return JSON.parse(await new Response(stream).text());
   }catch(e){
     return {};
   }
 }
-function getEmbeddedWeb(){
-  if (EMBEDDED_WEB_PROMISE === null) EMBEDDED_WEB_PROMISE = loadEmbeddedWeb();
-  return EMBEDDED_WEB_PROMISE;
-}
+// One fetch and one decompression per session, however many callers ask.
+const once = (fn) => { let promise = null; return () => (promise ||= fn()); };
+// Both datasets are cached in localStorage under a key carrying a build stamp,
+// so a rebuilt asset is a new key and a returning reader picks it up instead of
+// holding the old bytes forever. ./build-summaries.py rewrites the line below on
+// every build; the Bible's is bumped by hand, since it changes about never.
+const SUMMARIES_VERSION = "1f3eb34f";
+const getEmbeddedWeb = once(() => loadCompressedJson("web.json", "bible-embedded-web", "v1"));
+const getSummaries = once(() => loadCompressedJson("summaries.json", "bible-summaries", SUMMARIES_VERSION));
 async function fetchFromEmbedded(bookId, chapterNum){
   const data = await getEmbeddedWeb();
   const book = data[bookId];
@@ -1015,6 +1054,42 @@ function renderPassageText(result){
 }
 
 
+// Summaries are written against the split the plan makes at its default
+// settings, and matched to the day by verse overlap rather than by index, so a
+// reader on a different `time` or `wpm` still lands on the right ones. They just
+// may get two, where their day straddles a default boundary.
+//
+// Called from render() rather than from the button, so the dataset is fetched
+// on first render and the panel is already filled when it is opened.
+async function renderSummary(result){
+  const el = document.getElementById("summaryText");
+  const note = document.getElementById("summaryToneNote");
+  note.textContent = "";
+  el.textContent = "Loading…";
+  if (!result.live){
+    el.textContent = "No summary: this day is an estimate, not the real passage.";
+    return;
+  }
+  const chapter = ((await getSummaries())[result.bookId] || [])[result.chapter - 1] || [];
+  const hits = chapter.filter(([first, last]) => first <= result.lastVerse && last >= result.firstVerse);
+  // The reader may have stepped to another day while this was in flight.
+  if (result !== CURRENT_RESULT) return;
+  // A day written in one tone only shows the tone it has, and says so, the same
+  // way the text panel names an edition it had to fall back to. Silently
+  // swapping voices would make the two impossible to compare.
+  const wanted = SUMMARY_TONES.indexOf(SUMMARY_TONE);
+  // Which tone this day can actually show: the one asked for, else the first it
+  // has. Named rather than swapped silently, since a reader comparing the tones
+  // has to be able to tell which one is on screen.
+  const toneFor = (entry) => entry[2 + wanted] ? wanted : entry.slice(2).findIndex(Boolean);
+  const shown = hits.map(e => [toneFor(e), e]).filter(([i]) => i >= 0);
+  const swapped = [...new Set(shown.filter(([i]) => i !== wanted).map(([i]) => SUMMARY_TONES[i]))];
+  if (swapped.length) note.textContent = `only written in ${swapped.join(" and ")}`;
+  el.innerHTML = shown.length
+    ? shown.map(([i, e]) => `<p>${escapeHtml(e[2 + i])}</p>`).join("")
+    : `<p>No summary written for this passage yet.</p>`;
+}
+
 const versionOptions = () =>
   Object.entries(TEXT_TRANSLATIONS)
     .map(([code, t]) => `<option value="${code}">${t.label}</option>`)
@@ -1055,9 +1130,10 @@ function progressPercent(result){
 
 function render(dateKey, result){
   const ref = referenceRange(result);
-  // The heading follows the day on screen, which is not today while catching up.
+  // The heading follows the date on screen, including manually browsed days.
+  const today = localDateKey(new Date());
   document.getElementById("eyebrow").textContent =
-    dateKey === localDateKey(new Date()) ? "Today's Reading" : "Missed Reading";
+    dateKey === today ? "Today's Reading" : dateKey < today ? "Previous Reading" : "Upcoming Reading";
   document.getElementById("dateLine").textContent =
     new Date(dateKey + "T00:00:00").toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
 
@@ -1082,12 +1158,13 @@ function render(dateKey, result){
 
   const nextBook = result.bookFinished ? nameForOrderIndex(result.nextOrderIndex)[0] : result.name;
   const afterBook = nameForOrderIndex(result.nextOrderIndex + 1)[0];
-  const when = dateKey === localDateKey(new Date()) ? ["today", "tomorrow"] : ["that day", "next"];
+  const when = dateKey === today ? ["today", "tomorrow"] : ["that day", "next"];
   document.getElementById("upNext").innerHTML = result.bookFinished
     ? `Finishing <b>${result.name}</b> ${when[0]}. Next up: <b>${nextBook}</b>, then <b>${afterBook}</b>.`
     : `Continuing <b>${result.name}</b> ${when[1]}. After that: <b>${afterBook}</b>.`;
 
   renderPassageText(result);
+  renderSummary(result);
 
   const bookEntry = BOOKS.find(b => b[0] === result.name);
   updateReadLink(ref.book, ref.gwRef, bookEntry ? bookEntry[4] : false);
@@ -1173,6 +1250,7 @@ async function runPlan(resetFirst){
   // read when the reader steps past it, so closing the tab half way through a
   // backlog resumes where they stopped rather than skipping the rest.
   PENDING = [];
+  BROWSE_READINGS.clear();
   if (missing <= 0){
     const cursor = state.todayStart || state.cursor;
     PENDING.push({ date: today, cursor, result: await generateReading(cursor, true) });
@@ -1185,12 +1263,82 @@ async function runPlan(resetFirst){
       cursor = { orderIndex: r.nextOrderIndex, chapterPointer: r.nextChapter, versePointer: r.nextVerse };
     }
   }
+  for (const entry of PENDING){
+    BROWSE_READINGS.set(daysBetween(state.startDate, entry.date), entry);
+  }
   PLAN_STATE = state;
   showPendingDay(0);
 }
 
 // Which day of the backlog is on screen, and the backlog itself.
 let PENDING = [], PENDING_INDEX = 0, PLAN_STATE = null;
+// Browsing readings is separate from progress. The cache keeps repeated clicks
+// quick without writing to PLAN_STATE or localStorage.
+let BROWSE_READINGS = new Map(), VIEW_DAY_INDEX = 0, BROWSE_REQUEST = 0;
+
+function updateReadingNavigation(loading = false){
+  const previous = document.getElementById("readingPrev");
+  const next = document.getElementById("readingNext");
+  previous.disabled = loading || VIEW_DAY_INDEX <= 0;
+  next.disabled = loading || (CURRENT_RESULT && CURRENT_RESULT.bookFinished &&
+    CURRENT_RESULT.nextOrderIndex >= ORDER.length);
+}
+
+async function showReadingForDay(dayIndex){
+  const target = Math.max(0, dayIndex);
+  const request = ++BROWSE_REQUEST;
+  updateReadingNavigation(true);
+  try{
+    let entry = BROWSE_READINGS.get(target);
+    if (!entry){
+      let nearestDay = -1;
+      let cursor = { orderIndex: 0, chapterPointer: 1, versePointer: 1 };
+      for (const [knownDay, knownEntry] of BROWSE_READINGS){
+        if (knownDay < target && knownDay > nearestDay){
+          nearestDay = knownDay;
+          cursor = {
+            orderIndex: knownEntry.result.nextOrderIndex,
+            chapterPointer: knownEntry.result.nextChapter,
+            versePointer: knownEntry.result.nextVerse
+          };
+        }
+      }
+      for (let index = nearestDay + 1; index <= target; index++){
+        entry = BROWSE_READINGS.get(index);
+        if (entry){
+          cursor = {
+            orderIndex: entry.result.nextOrderIndex,
+            chapterPointer: entry.result.nextChapter,
+            versePointer: entry.result.nextVerse
+          };
+          continue;
+        }
+        if (cursor.orderIndex >= ORDER.length) return;
+        const result = await generateReading(cursor, true);
+        entry = {
+          date: addDays(PLAN_STATE.startDate, index),
+          cursor: { ...cursor },
+          result
+        };
+        BROWSE_READINGS.set(index, entry);
+        cursor = {
+          orderIndex: result.nextOrderIndex,
+          chapterPointer: result.nextChapter,
+          versePointer: result.nextVerse
+        };
+      }
+    }
+    if (request !== BROWSE_REQUEST || !entry) return;
+    VIEW_DAY_INDEX = target;
+    CURRENT_RESULT = entry.result;
+    if (entry.result.live) pruneChapterCache(entry.result.bookId, entry.result.chapter);
+    render(entry.date, entry.result);
+    renderCatchUp();
+    updateShareLink(PLAN_STATE);
+  }finally{
+    if (request === BROWSE_REQUEST) updateReadingNavigation();
+  }
+}
 
 // Reading a day commits it: the cursor moves past it and that date becomes the
 // last one generated. Today commits as soon as it is reached, which is what a
@@ -1211,10 +1359,12 @@ function showPendingDay(index){
   if (isLast) commitThrough(PENDING_INDEX);
 
   CURRENT_RESULT = entry.result;
+  VIEW_DAY_INDEX = daysBetween(PLAN_STATE.startDate, entry.date);
   if (entry.result.live) pruneChapterCache(entry.result.bookId, entry.result.chapter);
   render(entry.date, entry.result);
   renderCatchUp();
   updateShareLink(PLAN_STATE);
+  updateReadingNavigation();
 }
 
 async function init(){
@@ -1224,6 +1374,9 @@ async function init(){
   MAX_MINUTES = urlParams.time || activeSettings.time || 5;
   WORDS_PER_MINUTE = urlParams.wpm || activeSettings.wpm || 180;
   REQUESTED_VERSION = urlParams.version || activeSettings.version || null;
+  const storedTone = load(SUMMARY_TONE_KEY, SUMMARY_TONES[0]);
+  SUMMARY_TONE = SUMMARY_TONES.includes(storedTone) ? storedTone : SUMMARY_TONES[0];
+  document.getElementById("summaryToneInput").value = SUMMARY_TONE;
   PENDING_START_DATE = urlParams.startDate || null;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
   setActiveSeed(ACTIVE_SEED);
@@ -1238,7 +1391,7 @@ document.getElementById("resetBtn").addEventListener("click", async () => {
 });
 
 function togglePanel(id){
-  ["textPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
+  ["summaryPanel","textPanel","orderPanel","seedPanel"].forEach(p => { if (p !== id) document.getElementById(p).classList.remove("open"); });
   document.getElementById(id).classList.toggle("open");
 }
 // Stepping forward commits the day being left; stepping back only re-reads.
@@ -1259,8 +1412,22 @@ document.getElementById("catchupList").addEventListener("click", (e) => {
   for (let i = PENDING_INDEX; i < target; i++) commitThrough(i);
   showPendingDay(target);
 });
+document.getElementById("readingPrev").addEventListener("click", () => {
+  showReadingForDay(VIEW_DAY_INDEX - 1);
+});
+document.getElementById("readingNext").addEventListener("click", () => {
+  showReadingForDay(VIEW_DAY_INDEX + 1);
+});
 
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
+document.getElementById("summaryBtn").addEventListener("click", () => togglePanel("summaryPanel"));
+// Re-renders the panel alone: the tone changes no pacing and no position, so it
+// needs neither an Apply nor a full runPlan().
+document.getElementById("summaryToneInput").addEventListener("change", (e) => {
+  SUMMARY_TONE = SUMMARY_TONES.includes(e.target.value) ? e.target.value : SUMMARY_TONES[0];
+  save(SUMMARY_TONE_KEY, SUMMARY_TONE);
+  if (CURRENT_RESULT) renderSummary(CURRENT_RESULT);
+});
 
 // Copy the share link, and say so on the button. Where the Clipboard API is
 // unavailable or refused (insecure context, permission denied), select the text

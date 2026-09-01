@@ -137,9 +137,73 @@ drops everything but the current chapter after each render. A reading is one
 chapter, so yesterday's can never be read again; without the prune a year of
 daily reading would put roughly 2.7MB of chapter JSON against a 5MB origin
 quota, and once `save()` starts throwing the cache would silently never fill
-again. The compressed embedded WEB asset is separate: its base64 form is cached
-under a versioned `bible-embedded-web` key and is not pruned, because it is the
-whole Bible and prevents a repeat download after the first fetch.
+again. The two compressed static datasets are separate: their base64 forms are
+cached under stamped `bible-embedded-web` and `bible-summaries` keys and are not
+pruned, because they are the whole Bible and the whole summary set and their
+whole point is preventing a repeat download.
+
+`loadCompressedJson(base, namespace, version)` owns both: pick the format the
+browser can decompress, fetch `<base>.<ext>` once, keep the bytes, decompress
+per session. The version is in the cache key rather than beside it, so a rebuilt
+asset lands under a new key instead of being shadowed by the old bytes forever,
+and the superseded entry is dropped on the way past. `SUMMARIES_VERSION` is
+rewritten by `./build-summaries.py` on every build for exactly that reason; the
+Bible's `v1` is bumped by hand, since it changes about never.
+
+### Chapter summaries
+A one-paragraph summary of each day's reading, behind "Show summary", shipped as
+`summaries.json.br` / `.gz` alongside the Bible and lazily fetched by
+`renderSummary()` on first render rather than on first open, so the panel is
+already filled when it is opened.
+
+Three tones, offered in this order by the panel's picker and stored in this
+order in the asset: **plain** (cliff's notes, no jokes), **dry** (deadpan, wry)
+and **cheeky** (blunt and modern). A fresh reader lands on plain, since that is
+the one someone catching up on a missed day actually needs. Each tone has its
+own source file, `summaries-plain.txt` / `summaries.txt` / `summaries-cheeky.txt`,
+and `TONES` in `./build-summaries.py` is the single list that fixes the order.
+Every tone is optional per day: an entry is `[first, last, ...one per tone]`
+with trailing empties trimmed, and `renderSummary()` falls back to whichever
+tone the day has and names it, because silently swapping voices would make the
+tones impossible to compare.
+
+Written per **day**, not per chapter: a chapter the plan splits across two days
+gets a summary each. The splits are the ones the plan makes at its *default*
+settings (5 min x 180 wpm), and `./build-summaries.py` recomputes them from
+`web.json.br` and refuses to build if a line in `summaries.txt` names a range
+that is not a real boundary, so the prose and the pacing code cannot drift.
+
+A reader on a non-default `time` or `wpm` splits somewhere else, which is why
+each entry carries its verse range and `renderSummary()` matches by **overlap**
+rather than by index. Straddling a default boundary shows both summaries. That
+is the whole reason not to key them by part number.
+
+In **dry and cheeky**, a chapter split mid-narrative ends every part but the
+last on episodic TV continuation text ("Next time on Genesis: ..."). A chapter
+split mid-poem does not, because a psalm has no cliffhanger. Which of the two a
+given split is cannot be decided in code, but the build still checks the part it
+can: a non-final part with no continuation line fails unless its reference
+appears in `summaries-poem-splits.txt`. That file is how an omission says
+"deliberate" rather than "forgotten", and it exists because a batch of them once
+went missing silently.
+
+**Plain never takes a continuation line, in any book**, and the build does not
+look for one there. The teaser is a joke device, and plain has none. So
+`summaries-poem-splits.txt` only ever concerns the other two tones.
+
+The three tone files are the source of truth, one tab-separated line per day
+each, deliberately plain text rather than JSON so a line is easy to append and
+easy to diff. All three are complete: every one of the 1,679 days carries a
+plain, a dry and a cheeky summary. Nothing in the code assumes that, since
+`renderSummary()` still falls back across tones and a day with nothing written
+renders "No summary written for this passage yet.", which is what keeps a
+future added book or a re-paced split from breaking the panel.
+
+Summaries run 45 to 90 words. That band is prose guidance rather than something
+`build-summaries.py` enforces, so it cannot fail the build: an early batch
+shipped plain summaries of over 200 words that had to be trimmed by hand
+afterwards. If a future batch is written by an agent, put the band in its brief
+up front.
 
 ### URL params (the sync mechanism)
 ```
@@ -346,7 +410,14 @@ while its KJV and RV have the Daniel additions but not 3-4 Maccabees or Psalm
 151. Anything an edition lacks falls through to the embedded copy, which has all
 83, so every book is covered offline regardless.
 
-### Regenerating the embedded dataset
+### Regenerating the datasets
+`./build-summaries.py` rebuilds `summaries.json.br` / `.gz` from
+`summaries.txt`, validates every verse range against the default splits, prints
+coverage and what is still unwritten, and stamps `SUMMARIES_VERSION` into
+`index.html`. `--check` validates and reports without writing anything. Run it
+after any edit to `summaries.txt`; a bad range fails the build rather than
+shipping a summary attached to the wrong day.
+
 `./build-embedded.py` rebuilds `web.json.br` and `web.json.gz` from the USFX
 source; `--check` parses and reports without writing. The break rule is that the
 strongest break in a gap wins, which is what makes prose resuming after poetry
@@ -404,3 +475,8 @@ maintained here.
   chapters is real effort spent on a path expected never to execute. If tier 3
   starts triggering in practice, that's the signal to revisit.
 - Don't rename `index.html`. Pages serves it at the domain root by that name.
+- Don't key a summary to its part number ("part 2 of 3"). The part numbering is
+  only true at the default `time` and `wpm`; the verse range is true always.
+- Don't hand-edit `summaries.json.br`/`.gz`. They are build outputs of
+  `summaries.txt`, and editing them skips the boundary check that keeps the
+  prose aligned with the pacing code.
