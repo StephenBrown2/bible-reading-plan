@@ -744,7 +744,7 @@ const once = (fn) => { let promise = null; return () => (promise ||= fn()); };
 // so a rebuilt asset is a new key and a returning reader picks it up instead of
 // holding the old bytes forever. ./build-summaries.py rewrites the line below on
 // every build; the Bible's is bumped by hand, since it changes about never.
-const SUMMARIES_VERSION = "1f3eb34f";
+const SUMMARIES_VERSION = "9b7ca755";
 const getEmbeddedWeb = once(() => loadCompressedJson("web.json", "bible-embedded-web", "v1"));
 const getSummaries = once(() => loadCompressedJson("summaries.json", "bible-summaries", SUMMARIES_VERSION));
 async function fetchFromEmbedded(bookId, chapterNum){
