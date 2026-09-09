@@ -109,9 +109,26 @@ Progress is not "advance once per app-open." It's anchored to a `startDate`
   the **oldest unread day**, and Next steps forward through the backlog.
 - Each unique `(seed, time, wpm)` combination is tracked independently. Changing
   any of the three starts a fresh, separately-tracked plan.
-- `startDate` is locked in the first time a given combination is
-  used. A `startDate` URL param only seeds a *brand-new* track, it can't
-  retroactively shift one already in progress.
+- `startDate` is locked in the first time a given combination is used, and
+  `state.anchorExplicit` records whether a person chose it. A `startDate` URL
+  param can never retroactively shift a plan someone is keeping, or opening a
+  shared link would silently re-date their own reading. Two cases are not that,
+  and both give way, or a shared link stops working at all:
+  - **Merely opening the app** dates a track to today without anyone asking, so
+    `anchorExplicit` stays false. A link carrying a different date takes that
+    track over and rebuilds from its anchor, but only while
+    `lastGeneratedDate === startDate`, which is the line between a date nobody
+    chose and progress worth protecting. Without this the app's whole point
+    fails: open the page once, and every link for that seed is ignored
+    thereafter, because the page has already dated the track to today and
+    rewritten its own address bar to match.
+  - **Editing the date in the settings panel** re-anchors whatever is there,
+    since the reader is asking for it directly, and it sets `anchorExplicit`.
+
+  Either result is saved in `runPlan()` rather than left to `commitThrough()`,
+  which commits nothing when the render opens on a backlog, so the date would
+  be lost on the next reload. The two inputs are separate globals,
+  `PENDING_START_DATE` for the URL and `FORCED_START_DATE` for the panel.
 
 This is what lets two people on a shared link land on the same passage on the
 same calendar date without a server. See `runPlan()`.
@@ -235,7 +252,9 @@ up front.
 - `seed`: shuffle seed (any string); generated if absent, see below
 - `time`: max minutes per reading, default 5
 - `wpm`: reading speed, default 180
-- `startDate`: day-0 anchor, `YYYY-MM-DD`, only applies to a new track
+- `startDate`: day-0 anchor, `YYYY-MM-DD`. Seeds a new track, and takes over
+  one the app dated by itself that has not been read past its first day; it
+  never moves an anchor a person chose
 - `version`: optional translation code, picks the edition the passage text is
   fetched in; `TEXT_TRANSLATIONS` is the list of codes that can be honored,
   anything outside it leaves the text at WEB. The text panel's label names the

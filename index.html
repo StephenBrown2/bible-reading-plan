@@ -900,7 +900,7 @@ function buildOffline(orderIndex, startChapter, startPart){
 }
 
 function defaultState(){
-  return { startDate: null, lastGeneratedDate: null,
+  return { startDate: null, lastGeneratedDate: null, anchorExplicit: false,
     cursor: { orderIndex: 0, chapterPointer: 1, versePointer: 1 },
     todayStart: null };
 }
@@ -1224,6 +1224,7 @@ function updateShareLink(state){
 }
 
 let PENDING_START_DATE = null; // consumed once, only applies when starting a brand-new track
+let FORCED_START_DATE = null;  // consumed once, re-anchors a track already in progress
 
 async function runPlan(resetFirst){
   ORDER = shuffledOrder(ACTIVE_SEED);
@@ -1236,9 +1237,36 @@ async function runPlan(resetFirst){
 
   let state = resetFirst ? defaultState() : loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE);
   const today = localDateKey(new Date());
-  if (state.startDate === null){
-    state.startDate = PENDING_START_DATE || today;
+  // An anchor the reader chose is locked in, so a startDate URL param can never
+  // retroactively shift a plan someone is already keeping. Two things are not
+  // that, and both have to give way or a shared link stops working:
+  //
+  // Merely opening the app dates the track to today without anyone asking. A
+  // link carrying a different date then takes that track over, provided it has
+  // not been read past its first day, which is the difference between an anchor
+  // nobody chose and progress worth protecting.
+  //
+  // Editing the date in the settings panel re-anchors whatever is there, since
+  // the reader is asking for it directly.
+  //
+  // Either way the result is saved here rather than left to commitThrough: a
+  // render that opens on a backlog commits nothing, so the date would be lost
+  // on the next reload.
+  let anchorMoved = false;
+  if (!resetFirst && PENDING_START_DATE && state.startDate && !state.anchorExplicit &&
+      PENDING_START_DATE !== state.startDate && state.lastGeneratedDate === state.startDate){
+    state = defaultState();
+    anchorMoved = true;
   }
+  if (state.startDate === null){
+    state.startDate = FORCED_START_DATE || PENDING_START_DATE || today;
+    state.anchorExplicit = !!(FORCED_START_DATE || PENDING_START_DATE);
+  } else if (FORCED_START_DATE){
+    state.startDate = FORCED_START_DATE;
+    state.anchorExplicit = true;
+  }
+  if (FORCED_START_DATE || anchorMoved) saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, state);
+  FORCED_START_DATE = null;
   PENDING_START_DATE = null;
   document.getElementById("startDateInput").value = state.startDate;
 
@@ -1477,9 +1505,9 @@ document.getElementById("applySeedBtn").addEventListener("click", async () => {
   setActiveSeed(ACTIVE_SEED);
   setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
   document.getElementById("confirmMsg").textContent = `Applied seed "${ACTIVE_SEED}" (${MAX_MINUTES} min, ${WORDS_PER_MINUTE} wpm).`;
-  // A manual start-date edit only takes effect on a brand-new track (see runPlan).
+  // An explicit edit here re-anchors the track, unlike a startDate URL param.
   const dateVal = document.getElementById("startDateInput").value;
-  PENDING_START_DATE = (dateVal && DATE_RE.test(dateVal)) ? dateVal : null;
+  FORCED_START_DATE = (dateVal && DATE_RE.test(dateVal)) ? dateVal : null;
   await runPlan(false);
 });
 
