@@ -38,11 +38,16 @@ import brotli
 # Order is the storage order in the asset and the order the page offers them.
 # Changing it changes the shape of every entry, which is safe only because the
 # assets are build outputs and the version stamp forces readers to refetch.
-TONES = [("plain", pathlib.Path("summaries-plain.txt")),
-         ("dry", pathlib.Path("summaries.txt")),
-         ("cheeky", pathlib.Path("summaries-cheeky.txt"))]
-WEB = pathlib.Path("web.json.br")
-POEM_SPLITS = pathlib.Path("summaries-poem-splits.txt")
+# Paths are anchored to the repo root, not the working directory: the scripts
+# live in scripts/ and the prose in summaries/, so a relative path would depend
+# on where the script was invoked from.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "summaries"
+TONES = [("plain", SRC / "summaries-plain.txt"),
+         ("dry", SRC / "summaries.txt"),
+         ("cheeky", SRC / "summaries-cheeky.txt")]
+WEB = ROOT / "web.json.br"
+POEM_SPLITS = SRC / "summaries-poem-splits.txt"
 TEASE = "next time on"
 CEILING = 5 * 180  # the plan's default max minutes x default wpm
 LINE_RE = re.compile(r"^(\w+) (\d+):(\d+)-(\d+)\t(.+)$")
@@ -186,8 +191,8 @@ def main() -> int:
     }
     packed = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
     for path, blob in [
-        (pathlib.Path("summaries.json.br"), brotli.compress(packed, quality=11)),
-        (pathlib.Path("summaries.json.gz"), gzip.compress(packed, compresslevel=9, mtime=0)),
+        (ROOT / "summaries.json.br", brotli.compress(packed, quality=11)),
+        (ROOT / "summaries.json.gz", gzip.compress(packed, compresslevel=9, mtime=0)),
     ]:
         path.write_bytes(blob)
         print(f"wrote {path} ({len(blob):,} bytes)")
@@ -195,7 +200,7 @@ def main() -> int:
     # The page keeps the downloaded bytes in localStorage keyed by this stamp, so
     # without bumping it a returning reader would never see a rebuilt file.
     stamp = hashlib.sha256(packed).hexdigest()[:8]
-    html_path = pathlib.Path("index.html")
+    html_path = ROOT / "index.html"
     html, count = re.subn(
         r'(const SUMMARIES_VERSION = ")[0-9a-f]*(")', rf"\g<1>{stamp}\g<2>",
         html_path.read_text(), count=1)

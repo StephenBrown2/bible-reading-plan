@@ -170,11 +170,16 @@ are for passage text and that one-time WEB asset download.
 
 One file, `index.html`, no build step and no dependencies. Open it and it runs.
 
+The summary prose lives in `summaries/`, the tooling in `scripts/`. Both build
+scripts rewrite the compressed assets at the repo root and restamp the matching
+version constant in `index.html`, and every script runs from any directory.
+
 | Script | Purpose |
 |---|---|
-| `build-embedded.py` | Rebuild the embedded WEB text from the USFX source |
-| `check-bolls-books.py` | Check the bolls book numbers against the live provider |
-| `set-api-key.py` | Write the api.bible key from `.api-key` into the page |
+| `scripts/build-summaries.py` | Rebuild the summary assets from `summaries/` |
+| `scripts/build-embedded.py` | Rebuild the embedded WEB text from the USFX source |
+| `scripts/check-bolls-books.py` | Check the bolls book numbers against the live provider |
+| `scripts/set-api-key.py` | Write the api.bible key from `.api-key` into the page |
 
 See `CLAUDE.md` for architecture notes and the reasoning behind the parts that
 look arbitrary.

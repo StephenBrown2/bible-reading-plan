@@ -26,14 +26,15 @@ def obfuscate(key: str, pad: str) -> str:
 
 
 def main() -> int:
-    key_file = pathlib.Path(".api-key")
+    root = pathlib.Path(__file__).resolve().parent.parent
+    key_file = root / ".api-key"
     if not key_file.exists():
         return print("no .api-key file; nothing to do") or 1
     key = key_file.read_text().strip()
     if not key:
         return print(".api-key is empty") or 1
 
-    html = pathlib.Path("index.html")
+    html = root / "index.html"
     text = html.read_text()
     if not LINE.search(text):
         return print("could not find the API_BIBLE_KEY line in index.html") or 1

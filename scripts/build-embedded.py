@@ -30,6 +30,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 SOURCE = "https://raw.githubusercontent.com/seven1m/open-bibles/master/eng-web.usfx.xml"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 CACHE = pathlib.Path("/tmp/eng-web.usfx.xml")
 
 # The 66 canonical books, then the wider canon this plan reads. LJE is parsed
@@ -197,8 +198,8 @@ def main() -> int:
 
     packed = json.dumps(data, separators=(",", ":")).encode()
     assets = {
-        pathlib.Path("web.json.br"): brotli.compress(packed, quality=11),
-        pathlib.Path("web.json.gz"): gzip.compress(packed, compresslevel=9, mtime=0),
+        ROOT / "web.json.br": brotli.compress(packed, quality=11),
+        ROOT / "web.json.gz": gzip.compress(packed, compresslevel=9, mtime=0),
     }
     for path, compressed in assets.items():
         path.write_bytes(compressed)
@@ -206,7 +207,7 @@ def main() -> int:
 
     # The payload used to live in an inline script tag. Remove it when the
     # assets are rebuilt so the page remains small and never ships both forms.
-    html_path = pathlib.Path("index.html")
+    html_path = ROOT / "index.html"
     html = html_path.read_text()
     new = re.sub(r'\n?<script type="text/plain" id="embeddedWebDataBr">[^<]+</script>', "", html, count=1)
     if new != html:

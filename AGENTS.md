@@ -15,6 +15,26 @@ Live at <https://bible.sibii.space> (GitHub Pages, `StephenBrown2/bible-reading-
 public because Pages on a private repo needs a paid plan. Pages only auto-serves
 `index.html` at the domain root, so the file has to keep that name.
 
+## Layout
+
+```
+index.html              the whole app, served at the domain root
+web.json.br / .gz       embedded WEB Bible + deuterocanon, build outputs
+summaries.json.br / .gz the three tones of chapter summaries, build outputs
+summaries/              the summary prose, source of truth, hand-edited
+scripts/                the build and maintenance scripts
+```
+
+Everything the page fetches at runtime sits at the repo root, because Pages
+serves from there and the page asks for `web.json.br` and `summaries.json.br`
+by bare name. Only the sources and the tooling are in subdirectories.
+
+The scripts resolve their paths from `__file__`, not the working directory, so
+they run correctly from anywhere. Keep it that way when adding one, because a
+build script that cannot find its sources does not fail loudly: a missing tone
+file is legal (a tone is optional per day), so `build-summaries.py` would
+report 0% coverage and write an empty asset over the shipped one.
+
 ## Skills to use here
 
 - **`/jujutsu`** before any version-control operation. This repo is jj, not git.
@@ -144,11 +164,12 @@ whole point is preventing a repeat download.
 
 `loadCompressedJson(base, namespace, version)` owns both: pick the format the
 browser can decompress, fetch `<base>.<ext>` once, keep the bytes, decompress
-per session. The version is in the cache key rather than beside it, so a rebuilt
-asset lands under a new key instead of being shadowed by the old bytes forever,
-and the superseded entry is dropped on the way past. `SUMMARIES_VERSION` is
-rewritten by `./build-summaries.py` on every build for exactly that reason; the
-Bible's `v1` is bumped by hand, since it changes about never.
+per session. The version is in the cache key rather than beside it, so a
+rebuilt asset lands under a new key instead of being shadowed by the old bytes
+forever, and the superseded entry is dropped on the way past.
+`SUMMARIES_VERSION` is rewritten by `./scripts/build-summaries.py` on every
+build for exactly that reason; the Bible's `v1` is bumped by hand, since it
+changes about never.
 
 ### Chapter summaries
 A one-paragraph summary of each day's reading, behind "Show summary", shipped as
@@ -157,21 +178,23 @@ A one-paragraph summary of each day's reading, behind "Show summary", shipped as
 already filled when it is opened.
 
 Three tones, offered in this order by the panel's picker and stored in this
-order in the asset: **plain** (cliff's notes, no jokes), **dry** (deadpan, wry)
-and **cheeky** (blunt and modern). A fresh reader lands on plain, since that is
-the one someone catching up on a missed day actually needs. Each tone has its
-own source file, `summaries-plain.txt` / `summaries.txt` / `summaries-cheeky.txt`,
-and `TONES` in `./build-summaries.py` is the single list that fixes the order.
-Every tone is optional per day: an entry is `[first, last, ...one per tone]`
-with trailing empties trimmed, and `renderSummary()` falls back to whichever
-tone the day has and names it, because silently swapping voices would make the
+order in the asset: **plain** (cliff's notes, no jokes), **dry** (deadpan,
+wry) and **cheeky** (blunt and modern). A fresh reader lands on plain, since
+that is the one someone catching up on a missed day actually needs. Each tone
+has its own source file, `summaries/summaries-plain.txt` /
+`summaries/summaries.txt` / `summaries/summaries-cheeky.txt`, and `TONES` in
+`./scripts/build-summaries.py` is the single list that fixes the order. Every
+tone is optional per day: an entry is `[first, last, ...one per tone]` with
+trailing empties trimmed, and `renderSummary()` falls back to whichever tone
+the day has and names it, because silently swapping voices would make the
 tones impossible to compare.
 
-Written per **day**, not per chapter: a chapter the plan splits across two days
-gets a summary each. The splits are the ones the plan makes at its *default*
-settings (5 min x 180 wpm), and `./build-summaries.py` recomputes them from
-`web.json.br` and refuses to build if a line in `summaries.txt` names a range
-that is not a real boundary, so the prose and the pacing code cannot drift.
+Written per **day**, not per chapter: a chapter the plan splits across two
+days gets a summary each. The splits are the ones the plan makes at its
+*default* settings (5 min x 180 wpm), and `./scripts/build-summaries.py`
+recomputes them from `web.json.br` and refuses to build if a line in
+`summaries/summaries.txt` names a range that is not a real boundary, so the
+prose and the pacing code cannot drift.
 
 A reader on a non-default `time` or `wpm` splits somewhere else, which is why
 each entry carries its verse range and `renderSummary()` matches by **overlap**
@@ -180,16 +203,16 @@ is the whole reason not to key them by part number.
 
 In **dry and cheeky**, a chapter split mid-narrative ends every part but the
 last on episodic TV continuation text ("Next time on Genesis: ..."). A chapter
-split mid-poem does not, because a psalm has no cliffhanger. Which of the two a
-given split is cannot be decided in code, but the build still checks the part it
-can: a non-final part with no continuation line fails unless its reference
-appears in `summaries-poem-splits.txt`. That file is how an omission says
-"deliberate" rather than "forgotten", and it exists because a batch of them once
-went missing silently.
+split mid-poem does not, because a psalm has no cliffhanger. Which of the two
+a given split is cannot be decided in code, but the build still checks the
+part it can: a non-final part with no continuation line fails unless its
+reference appears in `summaries/summaries-poem-splits.txt`. That file is how
+an omission says "deliberate" rather than "forgotten", and it exists because a
+batch of them once went missing silently.
 
 **Plain never takes a continuation line, in any book**, and the build does not
 look for one there. The teaser is a joke device, and plain has none. So
-`summaries-poem-splits.txt` only ever concerns the other two tones.
+`summaries/summaries-poem-splits.txt` only ever concerns the other two tones.
 
 The three tone files are the source of truth, one tab-separated line per day
 each, deliberately plain text rather than JSON so a line is easy to append and
@@ -309,13 +332,13 @@ bolls.
    the embedded copy are unambiguously licensed, and the plan still works if
    bolls goes away, just without the modern translations.
 
-   bolls addresses books by number rather than USFM id. `BOLLS_BOOK_IDS` derives
-   the 66 canonical numbers from each book's position in `BOOKS` instead of
-   restating them, so reordering `BOOKS` would silently point readings at the
-   wrong book. `./check-bolls-books.py` asserts the numbering bolls actually
-   uses. Run it after touching `BOOKS`.
-2. **Embedded dataset**: the entire WEB Bible + deuterocanon lives in two static
-   files generated from the same JSON: `web.json.br` (brotli, 1.22 MB) and
+   bolls addresses books by number rather than USFM id. `BOLLS_BOOK_IDS`
+   derives the 66 canonical numbers from each book's position in `BOOKS`
+   instead of restating them, so reordering `BOOKS` would silently point
+   readings at the wrong book. `./scripts/check-bolls-books.py` asserts the
+   numbering bolls actually uses. Run it after touching `BOOKS`. 2. **Embedded
+   dataset**: the entire WEB Bible + deuterocanon lives in two static files
+   generated from the same JSON: `web.json.br` (brotli, 1.22 MB) and
    `web.json.gz` (gzip, 1.64 MB). `loadEmbeddedWeb()` probes the native
    `DecompressionStream` and picks brotli in Firefox/Safari or gzip in Chrome.
    It fetches the chosen compressed file once and retains its base64 form in
@@ -323,15 +346,15 @@ bolls.
    available on every browser with a supported native decompressor and lets a
    later visit work without an asset request. Source: `seven1m/open-bibles`
    (`eng-web.usfx.xml`), footnotes stripped, custom parser preserves paragraph
-   (`<p>`) and poetry line (`<q>`) structure as `\n\n` / `\n` markers embedded in
-   the verse text itself. Baruch is stored as 6 chapters: the source splits ch. 6
-   out as a separate "Letter of Jeremiah" book (`LJE`), merged back into `BAR`
-   chapter 6 during the build to match how the live APIs treat it.
-3. **Offline word-count estimate**: last resort, uses a static per-book
+   (`<p>`) and poetry line (`<q>`) structure as `\n\n` / `\n` markers embedded
+   in the verse text itself. Baruch is stored as 6 chapters: the source splits
+   ch. 6 out as a separate "Letter of Jeremiah" book (`LJE`), merged back into
+   `BAR` chapter 6 during the build to match how the live APIs treat it. 3.
+   **Offline word-count estimate**: last resort, uses a static per-book
    average-words-per-chapter table (`BOOKS` array) plus four hardcoded
-   known-long-chapter overrides (Psalm 119, 1 Kings 8, Numbers 7,
-   Deuteronomy 28). Defensive code, should essentially never trigger now that
-   tier 2 covers all 83 books.
+   known-long-chapter overrides (Psalm 119, 1 Kings 8, Numbers 7, Deuteronomy
+   28). Defensive code, should essentially never trigger now that tier 2
+   covers all 83 books.
 
 `renderVerseStream()` splits on the embedded `\n\n`/`\n` markers to produce real
 `<p>` paragraphs for prose and hanging-indent `<div class="poem-line">` blocks
@@ -411,19 +434,19 @@ while its KJV and RV have the Daniel additions but not 3-4 Maccabees or Psalm
 83, so every book is covered offline regardless.
 
 ### Regenerating the datasets
-`./build-summaries.py` rebuilds `summaries.json.br` / `.gz` from
-`summaries.txt`, validates every verse range against the default splits, prints
-coverage and what is still unwritten, and stamps `SUMMARIES_VERSION` into
-`index.html`. `--check` validates and reports without writing anything. Run it
-after any edit to `summaries.txt`; a bad range fails the build rather than
-shipping a summary attached to the wrong day.
+`./scripts/build-summaries.py` rebuilds `summaries.json.br` / `.gz` from
+`summaries/summaries.txt`, validates every verse range against the default
+splits, prints coverage and what is still unwritten, and stamps
+`SUMMARIES_VERSION` into `index.html`. `--check` validates and reports without
+writing anything. Run it after any edit to `summaries/summaries.txt`; a bad
+range fails the build rather than shipping a summary attached to the wrong
+day.
 
-`./build-embedded.py` rebuilds `web.json.br` and `web.json.gz` from the USFX
-source; `--check` parses and reports without writing. The break rule is that the
-strongest break in a gap wins, which is what makes prose resuming after poetry
-(Judges 5:31) a paragraph,
-and `<b/>` is ignored because the `<p>` or `<q>` on either side already
-describes the gap.
+`./scripts/build-embedded.py` rebuilds `web.json.br` and `web.json.gz` from
+the USFX source; `--check` parses and reports without writing. The break rule
+is that the strongest break in a gap wins, which is what makes prose resuming
+after poetry (Judges 5:31) a paragraph, and `<b/>` is ignored because the
+`<p>` or `<q>` on either side already describes the gap.
 
 The manual recipe, for reference: fetch `eng-web.usfx.xml` from
 `seven1m/open-bibles`, strip `<f>`/`<x>`/`<d>` blocks (footnotes, cross-refs,
@@ -446,9 +469,10 @@ The owner accepted that tradeoff and can regenerate the key at
 
 The plaintext key lives in `.api-key`, which is gitignored and **must never be
 committed**. jj snapshots new files automatically, so check `jj st` before
-describing a change. `./set-api-key.py` reads that file and rewrites the
-`API_BIBLE_KEY` line. With no key the provider returns `null` and the chain
-carries on to the next one, so the page still works for anyone who clones it.
+describing a change. `./scripts/set-api-key.py` reads that file and rewrites
+the `API_BIBLE_KEY` line. With no key the provider returns `null` and the
+chain carries on to the next one, so the page still works for anyone who
+clones it.
 
 That key's licensing reaches CSB, AMP, NASB1995, ASV, KJV, DRA, WEB and a number
 of other public-domain editions. ESV, NIV, NLT, NKJV, NRSVCE, NABRE and RSV are
@@ -467,16 +491,16 @@ maintained here.
 ## Things NOT to do
 
 - Don't re-embed the Bible text uncompressed "for simplicity." Raw JSON is
-  ~5.5 MB; the compressed static assets keep the page small and let each browser
-  download only the format it can decompress.
-- Don't add real per-chapter word-count data to replace the tier-3 averages.
-  Tier 3 only runs if a book is missing from the embedded dataset (none are) or
-  the embedded data fails to load at runtime. Sourcing exact counts for ~1,200
-  chapters is real effort spent on a path expected never to execute. If tier 3
-  starts triggering in practice, that's the signal to revisit.
-- Don't rename `index.html`. Pages serves it at the domain root by that name.
-- Don't key a summary to its part number ("part 2 of 3"). The part numbering is
-  only true at the default `time` and `wpm`; the verse range is true always.
-- Don't hand-edit `summaries.json.br`/`.gz`. They are build outputs of
-  `summaries.txt`, and editing them skips the boundary check that keeps the
-  prose aligned with the pacing code.
+  ~5.5 MB; the compressed static assets keep the page small and let each
+  browser download only the format it can decompress. - Don't add real
+  per-chapter word-count data to replace the tier-3 averages. Tier 3 only runs
+  if a book is missing from the embedded dataset (none are) or the embedded
+  data fails to load at runtime. Sourcing exact counts for ~1,200 chapters is
+  real effort spent on a path expected never to execute. If tier 3 starts
+  triggering in practice, that's the signal to revisit. - Don't rename
+  `index.html`. Pages serves it at the domain root by that name. - Don't key a
+  summary to its part number ("part 2 of 3"). The part numbering is only true
+  at the default `time` and `wpm`; the verse range is true always. - Don't
+  hand-edit `summaries.json.br`/`.gz`. They are build outputs of
+  `summaries/summaries.txt`, and editing them skips the boundary check that
+  keeps the prose aligned with the pacing code.
