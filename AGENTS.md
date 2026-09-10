@@ -153,6 +153,48 @@ Entries are `white-space: nowrap`. That is not only cosmetic: it keeps every row
 one line tall, so the shared row heights of a grid can't leave a gap across every
 column when one name wraps.
 
+### Reading navigation, pills and chevrons
+The action pills wrap to two lines at the page's full width, and the markup
+order is built around that: `readingPrev` and `readingNext` sit either side of
+the seed and restart buttons so they land at the two ends of the second line.
+Narrower than that the row wraps again and the pair drifts apart, which is what
+the chevrons replace.
+
+`syncNavStyle()` decides which is showing. It replays the flex wrap in script
+from each pill's measured width and sets `body.nav-chevrons` when Previous and
+Next would land on different rows. The trigger is that separation rather than
+"does the row wrap at all", which would be true at every width, and rather than
+a width breakpoint, since the pills are sized by their own text.
+
+Under `body.nav-chevrons` the two pills go `position:absolute;
+visibility:hidden` rather than `display:none`. That keeps a measurable width, so
+every pass can measure all eight pills and the answer never depends on which
+mode is already showing; reading the live row instead would oscillate, because
+hiding the pills is often exactly what makes the row fit again. `visibility`
+also takes them out of the tab order, which `opacity` would not.
+
+Each chevron's hit area is the card's whole side margin: full height, and 24px
+wide, which is the card's side padding, so it runs from the edge of the box in
+to where the meta rules start. The glyph is centred in that strip rather than
+pinned to the title line, and the strip stops short of the ribbon, which sits
+28px in from the right edge. The generous target is the point of it: these
+replace two full-size buttons on the smallest screens.
+
+The chevrons are part of the card template, so they are rebuilt on every render
+and `updateReadingNavigation()` looks them up fresh; the click handler is
+delegated from `#root` for the same reason. Their disabled states mirror the
+pills they replace.
+
+`NAV_WRAP_OBSERVER` is held in a variable on purpose. An unreferenced
+`ResizeObserver` can be collected and quietly stop firing. `render()` calls
+`syncNavStyle()` too, so the first paint is right without waiting on a callback.
+
+Testing this needs a genuinely visible tab. A hidden or backgrounded one
+suspends rendering, so `ResizeObserver`, `requestAnimationFrame` and `resize`
+never fire, and a resize test appears to do nothing while the code is fine.
+Check `document.visibilityState` before believing such a result. An iframe under
+automation behaves the same way.
+
 ### Single-chapter books
 Ten books are one chapter (Obadiah, Philemon, 2-3 John, Jude, and five of the
 wider canon), where a chapter number carries no information. `referenceRange()`

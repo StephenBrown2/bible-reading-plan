@@ -41,6 +41,31 @@
     clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%);
   }
   .book{ font-size:clamp(28px,7vw,40px); line-height:1.1; text-align:center; margin:0 0 4px; font-weight:600; }
+  /* Reading navigation for narrow screens. The hit area is the card's whole
+     side margin, full height and 24px wide, which is the card's side padding,
+     so it runs from the edge of the box in to where the meta rules start. The
+     glyph is centred in that strip rather than pinned to the title. */
+  .card-nav{
+    position:absolute; top:0; bottom:0; width:24px;
+    display:none; align-items:center; justify-content:center;
+    padding:0; border:none; background:none;
+    color:var(--ink-soft); opacity:.45;
+  }
+  .card-nav-prev{ left:0; }
+  .card-nav-next{ right:0; }
+  .card-nav svg{
+    width:11px; height:18px; fill:none; stroke:currentColor;
+    stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;
+  }
+  .card-nav:hover{ opacity:1; color:var(--ribbon); }
+  .card-nav[disabled]{ opacity:.12; cursor:default; }
+  body.nav-chevrons .card-nav{ display:flex; }
+  /* Taken out of the flow rather than display:none, so the row reflows without
+     them while they keep a measurable width. visibility:hidden also drops them
+     out of the tab order, which display:none would do but opacity would not. */
+  body.nav-chevrons #readingPrev, body.nav-chevrons #readingNext{
+    position:absolute; visibility:hidden; pointer-events:none;
+  }
   .range{ text-align:center; font-size:15px; color:var(--ink-soft); margin-bottom:18px; }
   .meta-row{
     display:flex; justify-content:center; gap:18px; font-size:12px; letter-spacing:.06em;
@@ -57,7 +82,7 @@
   .bar-fill{ height:100%; background:var(--ribbon); }
   .up-next{ margin-top:26px; font-size:12px; color:var(--ink-soft); text-align:center; line-height:1.7; }
   .up-next b{ color:var(--ink); font-weight:600; }
-  .actions{ margin-top:30px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .actions{ position:relative; margin-top:30px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
   button, select, .action-link{
     font-family:inherit; background:none; border:1px solid var(--line); color:var(--ink-soft);
     font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:8px 16px;
@@ -1141,6 +1166,12 @@ function render(dateKey, result){
   root.className = "card";
   root.innerHTML = `
     <div class="ribbon"></div>
+    <button class="card-nav card-nav-prev" data-nav="prev" aria-label="Previous reading">
+      <svg viewBox="0 0 12 20" aria-hidden="true"><polyline points="9.5 2 2.5 10 9.5 18"/></svg>
+    </button>
+    <button class="card-nav card-nav-next" data-nav="next" aria-label="Next reading">
+      <svg viewBox="0 0 12 20" aria-hidden="true"><polyline points="2.5 2 9.5 10 2.5 18"/></svg>
+    </button>
     <div class="book">${result.name}</div>
     <div class="range">${ref.label}</div>
     <div class="meta-row">
@@ -1149,6 +1180,9 @@ function render(dateKey, result){
     </div>
     ${!result.live ? '<div class="source-note">Estimate — live text unavailable</div>' : ""}
   `;
+  // Settle the nav style here as well as on resize, so the first paint is right
+  // without waiting on a ResizeObserver callback.
+  syncNavStyle();
 
   const pct = progressPercent(result);
   document.getElementById("progressWrap").style.display = "block";
@@ -1305,11 +1339,44 @@ let PENDING = [], PENDING_INDEX = 0, PLAN_STATE = null;
 let BROWSE_READINGS = new Map(), VIEW_DAY_INDEX = 0, BROWSE_REQUEST = 0;
 
 function updateReadingNavigation(loading = false){
-  const previous = document.getElementById("readingPrev");
-  const next = document.getElementById("readingNext");
-  previous.disabled = loading || VIEW_DAY_INDEX <= 0;
-  next.disabled = loading || (CURRENT_RESULT && CURRENT_RESULT.bookFinished &&
-    CURRENT_RESULT.nextOrderIndex >= ORDER.length);
+  const atStart = !!(loading || VIEW_DAY_INDEX <= 0);
+  const atEnd = !!(loading || (CURRENT_RESULT && CURRENT_RESULT.bookFinished &&
+    CURRENT_RESULT.nextOrderIndex >= ORDER.length));
+  // The chevrons are rebuilt with the card on every render, so they are looked
+  // up fresh rather than cached, and are absent until the first reading lands.
+  for (const el of [document.getElementById("readingPrev"), document.querySelector(".card-nav-prev")]){
+    if (el) el.disabled = atStart;
+  }
+  for (const el of [document.getElementById("readingNext"), document.querySelector(".card-nav-next")]){
+    if (el) el.disabled = atEnd;
+  }
+}
+
+// The chevrons take over when wrapping would separate Previous from Next. The
+// pill row already wraps to two lines at the page's full width, and the markup
+// puts those two at either end of that second line on purpose; it is only when
+// the row wraps further that they drift apart, which is the shuffling this
+// replaces. A plain "does it wrap at all" test would be true at every width.
+//
+// The wrap is replayed here rather than read back from the live row because the
+// two pills are out of the flow once the chevrons are up. They keep their real
+// widths while hidden, so every pill can be measured on every pass and the
+// answer never depends on which mode is currently showing.
+function syncNavStyle(){
+  const actions = document.querySelector(".actions");
+  const pills = [...actions.children];
+  if (pills.some(el => !el.offsetWidth)) return;  // not laid out yet
+  const gap = parseFloat(getComputedStyle(actions).gap) || 0;
+  const width = actions.clientWidth;
+  let x = 0, row = 0;
+  const rowOf = {};
+  for (const pill of pills){
+    const w = pill.offsetWidth;
+    if (x && x + gap + w > width){ row++; x = w; }
+    else x += (x ? gap : 0) + w;
+    rowOf[pill.id] = row;
+  }
+  document.body.classList.toggle("nav-chevrons", rowOf.readingPrev !== rowOf.readingNext);
 }
 
 async function showReadingForDay(dayIndex){
@@ -1440,6 +1507,19 @@ document.getElementById("catchupList").addEventListener("click", (e) => {
   for (let i = PENDING_INDEX; i < target; i++) commitThrough(i);
   showPendingDay(target);
 });
+document.getElementById("root").addEventListener("click", (event) => {
+  const chevron = event.target.closest(".card-nav");
+  if (!chevron || chevron.disabled) return;
+  showReadingForDay(VIEW_DAY_INDEX + (chevron.dataset.nav === "next" ? 1 : -1));
+});
+// The observer is held in a variable rather than left anonymous: an unreferenced
+// ResizeObserver can be collected and simply stop firing. The resize listener
+// covers orientation changes, and fonts.ready covers the pills being measured
+// before the webfont metrics settle.
+const NAV_WRAP_OBSERVER = new ResizeObserver(syncNavStyle);
+NAV_WRAP_OBSERVER.observe(document.querySelector(".actions"));
+window.addEventListener("resize", syncNavStyle);
+if (document.fonts) document.fonts.ready.then(syncNavStyle);
 document.getElementById("readingPrev").addEventListener("click", () => {
   showReadingForDay(VIEW_DAY_INDEX - 1);
 });
