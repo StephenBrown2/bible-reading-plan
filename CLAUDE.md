@@ -45,6 +45,14 @@ report 0% coverage and write an empty asset over the shipped one.
 - **`/ponytail`** for code changes. This is one HTML file with no build step and
   no dependencies, and it should stay that way.
 
+## Browser testing
+
+Brave and Chromium are both installed, and both have the Claude browser
+extension. If the extension isn't connected because neither browser is running,
+launch either one; the owner has given standing permission for that. Brave is
+`brave-browser` (`/usr/bin/brave-browser`), and Chromium is `chromium`
+(`/snap/bin/chromium`).
+
 ## Maintaining this file
 
 Keep it current. Anything a future agent has to know before touching the code
@@ -87,6 +95,17 @@ word ceiling of `time * wpm`. A reading is **one chapter at most**: a chapter
 longer than the ceiling splits across days at a verse boundary, and a short
 chapter is simply a short day. Chapters are never merged, which is why there is
 no lower bound.
+
+Word counts always come from the **WEB** (the embedded copy, or live WEB if it
+cannot load), never from the translation on screen. Translations differ in
+length by enough to split a chapter in one and not another, and pacing by the
+displayed text once sent two readers of the same link down different
+progressions. `buildLive()` paces on the WEB, then fetches the requested
+translation and cuts it to the same verse *numbers*; a chapter's first and last
+days stay open-ended so a verse an edition has and the WEB lacks is kept.
+Backlog days past `LIVE_CATCHUP_LIMIT` pace from the WEB too and simply skip
+the translated fetch. A saved track without `webPaced` predates this, and
+`runPlan()` replays its cursor from day 0 once to put it back in step.
 
 A split is **even, not greedy**. Filling each day to the ceiling leaves a stub
 (Matthew 5 used to come out 888 words then 177); instead the words left in the
@@ -313,7 +332,10 @@ The passage text's `<select>` is built from `TEXT_TRANSLATIONS` by
 `versionOptions()` and sits on the text panel's heading line, in place of the
 translation name that used to be printed there, so it appears only with Show
 text and applies on `change`: a translation changes only which text is
-fetched, never the pacing or the plan's position, so it needs no Apply.
+fetched, never the pacing or the plan's position, so it needs no Apply. For the
+same reason the day on screen stays put: the handler notes `VIEW_DAY_INDEX`
+before `runPlan()`, which would otherwise land on the oldest unread day, and
+returns to it afterwards.
 
 Since the picker shows what was *asked for*, `#textFallbackNote` covers what
 actually arrived, and only when the two differ ("showing World English Bible"
@@ -400,8 +422,14 @@ bolls.
    numbering bolls actually uses. Run it after touching `BOOKS`. 2. **Embedded
    dataset**: the entire WEB Bible + deuterocanon lives in two static files
    generated from the same JSON: `web.json.br` (brotli, 1.22 MB) and
-   `web.json.gz` (gzip, 1.64 MB). `loadEmbeddedWeb()` probes the native
+   `web.json.gz` (gzip, 1.64 MB). `getEmbeddedWeb()` probes the native
    `DecompressionStream` and picks brotli in Firefox/Safari or gzip in Chrome.
+   It is called once as soon as the script runs, since pacing always needs the
+   WEB. While a first visit waits, `#textLoading` sits over the passage panel,
+   styled like a note popover and centred on `#textPanel`, which a `:has()`
+   rule tints with the note backdrop's colour while it is up, so it only shows if
+   the text is expanded. `renderPassageText()` hides it, and a translation
+   change shows it again over the old text until the new text arrives.
    It fetches the chosen compressed file once and retains its base64 form in
    localStorage, then decompresses it in memory each session. This keeps WEB
    available on every browser with a supported native decompressor and lets a

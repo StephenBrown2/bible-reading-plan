@@ -195,7 +195,19 @@
   }
   .passage-text .note-ref-abutting{ margin-right:.35em; }
   .passage-text .note-ref:hover{ text-decoration:underline; }
-  .note-body{
+  /* The loading overlay borrows the note's look, centred on the text panel. */
+  #textPanel{ position:relative; }
+  /* Tall enough that the centred overlay clears the translation picker. */
+  .passage-text:empty{ min-height:8em; }
+  .panel-loading{
+    position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); z-index:1;
+  }
+  /* The same tint a note's ::backdrop lays over the page, kept to the panel. */
+  #textPanel:has(> .panel-loading:not([hidden]))::after{
+    content:""; position:absolute; inset:0; border-radius:inherit;
+    background:rgba(0,0,0,.06);
+  }
+  .note-body, .panel-loading{
     max-width:min(34rem, 90vw); font-size:14px; line-height:1.6;
     color:var(--ink); background:var(--paper);
     border:1px solid var(--ribbon-dim); border-radius:3px; padding:12px 16px;
@@ -274,7 +286,8 @@
       <select id="versionInput"></select>
       <span class="fallback-note" id="textFallbackNote"></span>
     </div>
-    <div class="passage-text" id="passageText">Loading…</div>
+    <div class="passage-text" id="passageText"></div>
+    <div class="panel-loading" id="textLoading" role="status">Loading…</div>
   </div>
 
   <div class="panel" id="orderPanel">
@@ -771,6 +784,7 @@ const once = (fn) => { let promise = null; return () => (promise ||= fn()); };
 // every build; the Bible's is bumped by hand, since it changes about never.
 const SUMMARIES_VERSION = "9b7ca755";
 const getEmbeddedWeb = once(() => loadCompressedJson("web.json", "bible-embedded-web", "v1"));
+getEmbeddedWeb();  // start now; pacing always needs it, and awaits this same promise
 const getSummaries = once(() => loadCompressedJson("summaries.json", "bible-summaries", SUMMARIES_VERSION));
 async function fetchFromEmbedded(bookId, chapterNum){
   const data = await getEmbeddedWeb();
@@ -784,8 +798,8 @@ async function fetchFromEmbedded(bookId, chapterNum){
 
 // Returns { verses, translation } where `translation` names the edition the
 // text actually came from, which is not always the one asked for.
-async function fetchChapter(bookId, chapterNum, isDeutero){
-  const requested = REQUESTED_VERSION && REQUESTED_VERSION.toUpperCase();
+async function fetchChapter(bookId, chapterNum, version){
+  const requested = version && version.toUpperCase();
   // Build the ordered list of attempts, dropping any the provider can't serve.
   const attempts = [];
   // Most structure first: api.bible marks paragraphs, poetry, headings and
@@ -828,10 +842,16 @@ async function fetchChapter(bookId, chapterNum, isDeutero){
 }
 
 
-// Live, verse-accurate path: walks real word counts starting at a given verse.
-async function buildLive(orderIndex, chapterPointer, versePointer){
-  const [name, totalChapters, , bookId, isDeutero] = nameForOrderIndex(orderIndex);
-  const chData = await fetchChapter(bookId, chapterPointer, isDeutero);
+// Verse-accurate path: walks real word counts starting at a given verse.
+//
+// Pacing always counts the WEB, whatever translation is on screen, so everyone
+// on the same seed, time and wpm reads the same verses on the same day. CSB and
+// ASV differ in length by enough to split a chapter in one and not the other.
+// The requested translation is fetched afterwards and cut to the same verse
+// numbers. `withText` false skips that fetch for deep backlog days.
+async function buildLive(orderIndex, chapterPointer, versePointer, withText){
+  const [name, totalChapters, , bookId] = nameForOrderIndex(orderIndex);
+  const chData = await fetchChapter(bookId, chapterPointer, "WEB");
   if (!chData) return null;
 
   // versePointer is a position in the chapter array, not a verse number: books
@@ -869,16 +889,29 @@ async function buildLive(orderIndex, chapterPointer, versePointer){
     else { nextChapter = chapterPointer + 1; nextVerse = 1; }
   }
 
+  // Cut by verse number, not position, since editions number differently. The
+  // chapter's first and last days stay open-ended, so a verse this edition has
+  // and the WEB doesn't (Romans 16:25-27 in some) is not dropped off the edge.
+  let shown = chosen, translation = chData.translation;
+  const requested = REQUESTED_VERSION && REQUESTED_VERSION.toUpperCase();
+  if (withText && requested && requested !== "WEB"){
+    const other = await fetchChapter(bookId, chapterPointer, requested);
+    const lo = versePointer === 1 ? -Infinity : chosen[0].verse;
+    const hi = reachedEnd ? Infinity : chosen[chosen.length - 1].verse;
+    const cut = other ? other.verses.filter(x => x.verse >= lo && x.verse <= hi) : [];
+    if (cut.length){ shown = cut; translation = other.translation; }
+  }
+
   return {
     live: true, name, totalChapters, chapterForProgress: chapterPointer,
-    bookId, chapter: chapterPointer, verses: chosen,
+    bookId, chapter: chapterPointer, verses: shown,
     // for one-chapter books, which measure progress in verses rather than chapters
     chapterVerses: verses.length, versesRead: versePointer - 1 + chosen.length,
     lastVerseInChapter: verses[verses.length - 1].verse,
     firstVerse: chosen[0].verse, lastVerse: chosen[chosen.length - 1].verse,
     wholeChapter: chosen.length === verses.length,
     sum, bookFinished, nextOrderIndex, nextChapter, nextVerse,
-    translation: chData.translation
+    translation
   };
 }
 
@@ -925,7 +958,7 @@ function buildOffline(orderIndex, startChapter, startPart){
 }
 
 function defaultState(){
-  return { startDate: null, lastGeneratedDate: null, anchorExplicit: false,
+  return { startDate: null, lastGeneratedDate: null, anchorExplicit: false, webPaced: true,
     cursor: { orderIndex: 0, chapterPointer: 1, versePointer: 1 },
     todayStart: null };
 }
@@ -950,12 +983,12 @@ const loadState = (seed, time, wpm) => load(stateKeyFor(seed, time, wpm), null) 
 const saveState = (seed, time, wpm, state) => save(stateKeyFor(seed, time, wpm), state);
 function estMinutes(words){ return Math.max(1, Math.round(words / WORDS_PER_MINUTE)); }
 
+// Pacing comes from the embedded WEB whenever it loaded, so a long backlog paces
+// exactly like a day read on time. `allowLive` only decides whether the
+// requested translation's text is fetched too.
 async function generateReading(cursor, allowLive){
-  if (allowLive){
-    const r = await buildLive(cursor.orderIndex, cursor.chapterPointer, cursor.versePointer);
-    if (r) return r;
-  }
-  return buildOffline(cursor.orderIndex, cursor.chapterPointer, 0);
+  const r = await buildLive(cursor.orderIndex, cursor.chapterPointer, cursor.versePointer, allowLive);
+  return r || buildOffline(cursor.orderIndex, cursor.chapterPointer, 0);
 }
 
 let CURRENT_RESULT = null;
@@ -1063,6 +1096,7 @@ function renderVerseStream(verses){
 
 function renderPassageText(result){
   const el = document.getElementById("passageText");
+  document.getElementById("textLoading").hidden = true;
   // The picker names what was asked for; this names what arrived, but only when
   // they differ, which is the one case a reader could otherwise be misled by.
   const asked = REQUESTED_VERSION
@@ -1303,6 +1337,23 @@ async function runPlan(resetFirst){
   FORCED_START_DATE = null;
   PENDING_START_DATE = null;
   document.getElementById("startDateInput").value = state.startDate;
+
+  // A track saved before pacing was pinned to the WEB holds a cursor paced by
+  // whatever translation it was read in. Replaying from day 0 puts it back on
+  // the shared progression. Cheap, since it only walks the embedded WEB.
+  if (state.lastGeneratedDate && !state.webPaced){
+    let cursor = { orderIndex: 0, chapterPointer: 1, versePointer: 1 }, start = cursor, ok = true;
+    for (let d = 0; d <= daysBetween(state.startDate, state.lastGeneratedDate) && cursor.orderIndex < ORDER.length; d++){
+      const r = await buildLive(cursor.orderIndex, cursor.chapterPointer, cursor.versePointer, false);
+      if (!r){ ok = false; break; }
+      start = cursor;
+      cursor = { orderIndex: r.nextOrderIndex, chapterPointer: r.nextChapter, versePointer: r.nextVerse };
+    }
+    if (ok){
+      Object.assign(state, { cursor, todayStart: start, webPaced: true });
+      saveState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE, state);
+    }
+  }
 
   const dayIndexToday = daysBetween(state.startDate, today);
   const lastIndex = state.lastGeneratedDate ? daysBetween(state.startDate, state.lastGeneratedDate) : -1;
@@ -1573,7 +1624,15 @@ document.getElementById("seedBtn").addEventListener("click", () => togglePanel("
 document.getElementById("versionInput").addEventListener("change", async (e) => {
   REQUESTED_VERSION = e.target.value || null;
   setActiveSettings(MAX_MINUTES, WORDS_PER_MINUTE, REQUESTED_VERSION);
+  // runPlan() lands on the oldest unread day, but a translation changes only the
+  // text, so whichever day was on screen stays there.
+  const viewing = VIEW_DAY_INDEX;
+  document.getElementById("textLoading").hidden = false;
   await runPlan(false);
+  if (VIEW_DAY_INDEX === viewing) return;
+  const pending = PENDING.findIndex(p => daysBetween(PLAN_STATE.startDate, p.date) === viewing);
+  if (pending >= 0) showPendingDay(pending);
+  else await showReadingForDay(viewing);
 });
 
 document.getElementById("applySeedBtn").addEventListener("click", async () => {
