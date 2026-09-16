@@ -173,17 +173,27 @@ one line tall, so the shared row heights of a grid can't leave a gap across ever
 column when one name wraps.
 
 ### Reading navigation, pills and chevrons
-The action pills wrap to two lines at the page's full width, and the markup
-order is built around that: `readingPrev` and `readingNext` sit either side of
-the seed and restart buttons so they land at the two ends of the second line.
-Narrower than that the row wraps again and the pair drifts apart, which is what
-the chevrons replace.
+The action pills are a grid of equal `1fr` columns, not a wrapped row, because a
+wrapped row leaves an orphan on a line of its own at most widths. Only counts
+that divide the pills evenly are ever used: eight pills fill 4x2, and six fill
+3x2 or 2x3. The markup order is built around the eight-pill case, where
+`readingPrev` and `readingNext` sit either side of the seed and restart buttons
+so they land at the two ends of the second row.
 
-`syncNavStyle()` decides which is showing. It replays the flex wrap in script
-from each pill's measured width and sets `body.nav-chevrons` when Previous and
-Next would land on different rows. The trigger is that separation rather than
-"does the row wrap at all", which would be true at every width, and rather than
-a width breakpoint, since the pills are sized by their own text.
+`syncNavStyle()` picks the count. Each column is as wide as the widest pill, so
+that pill decides how many fit: it is measured under `max-content`, since a pill
+in the live grid has already been stretched to its column and would measure the
+answer back rather than its own width. Four columns is the only count that takes
+all eight without an orphan, so four fitting is also exactly the condition for
+showing Previous and Next; below it `body.nav-chevrons` goes on and the
+remaining six take three columns or two. No width breakpoint, since the pills
+are sized by their own text.
+
+The pill padding is what lets four columns fit the 640px page at all, so
+widening the sides drops the desktop to three columns and hides the two pills.
+The rule sits *after* `button, select, .action-link` on purpose: "Read online"
+is an `.action-link`, and an earlier rule loses the specificity tie, which left
+its label at the top of the pill rather than centred.
 
 Under `body.nav-chevrons` the two pills go `position:absolute;
 visibility:hidden` rather than `display:none`. That keeps a measurable width, so

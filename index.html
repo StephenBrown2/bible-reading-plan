@@ -82,13 +82,29 @@
   .bar-fill{ height:100%; background:var(--ribbon); }
   .up-next{ margin-top:26px; font-size:12px; color:var(--ink-soft); text-align:center; line-height:1.7; }
   .up-next b{ color:var(--ink); font-weight:600; }
-  .actions{ position:relative; margin-top:30px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  /* A grid rather than a wrapped row, so the pills never leave an orphan on a
+     line of their own: six buttons fill 3x2 or 2x3, eight fill 4x2, and
+     syncNavStyle() picks the column count that fits. Equal 1fr columns are what
+     make it read as a grid; the padding below is what lets four of them fit the
+     640px page, and the vertical half keeps the touch target tall enough. */
+  .actions{
+    position:relative; margin-top:30px; display:grid; gap:10px;
+    grid-template-columns:repeat(2, 1fr); justify-content:center;
+  }
   button, select, .action-link{
     font-family:inherit; background:none; border:1px solid var(--line); color:var(--ink-soft);
     font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:8px 16px;
     border-radius:20px; cursor:pointer;
   }
   .action-link{ display:inline-block; text-decoration:none; }
+  /* After the rules above, not before: "Read online" is an .action-link, and an
+     earlier rule loses the tie on display and padding, which left its label
+     sitting at the top of the pill. The narrower sides are what let four
+     columns fit the 640px page; the pills keep their original height. */
+  .actions > *{
+    min-width:0; padding:8px 10px;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+  }
   button:hover, .action-link:hover{ border-color:var(--ribbon-dim); color:var(--ribbon); }
   button:focus-visible, select:focus-visible{ outline:2px solid var(--ribbon); outline-offset:2px; }
   .actions button[disabled]{ opacity:.4; cursor:default; }
@@ -1417,17 +1433,21 @@ function syncNavStyle(){
   const actions = document.querySelector(".actions");
   const pills = [...actions.children];
   if (pills.some(el => !el.offsetWidth)) return;  // not laid out yet
-  const gap = parseFloat(getComputedStyle(actions).gap) || 0;
+  const gap = parseFloat(getComputedStyle(actions).columnGap) || 0;
   const width = actions.clientWidth;
-  let x = 0, row = 0;
-  const rowOf = {};
-  for (const pill of pills){
-    const w = pill.offsetWidth;
-    if (x && x + gap + w > width){ row++; x = w; }
-    else x += (x ? gap : 0) + w;
-    rowOf[pill.id] = row;
-  }
-  document.body.classList.toggle("nav-chevrons", rowOf.readingPrev !== rowOf.readingNext);
+  // Every column is as wide as the widest pill, so the widest pill decides how
+  // many columns fit. Measured under max-content, since a pill in the live grid
+  // has been stretched to its column and would measure the answer back.
+  const columns = actions.style.gridTemplateColumns;
+  actions.style.gridTemplateColumns = `repeat(${pills.length}, max-content)`;
+  const widest = Math.max(...pills.map(p => p.getBoundingClientRect().width));
+  actions.style.gridTemplateColumns = columns;
+  const fits = (n) => n * widest + (n - 1) * gap <= width + 0.5;
+  // Four columns is the only count that takes all eight pills without an
+  // orphan, so it is also exactly when Previous and Next can show.
+  const full = fits(4);
+  document.body.classList.toggle("nav-chevrons", !full);
+  actions.style.gridTemplateColumns = `repeat(${full ? 4 : fits(3) ? 3 : 2}, 1fr)`;
 }
 
 async function showReadingForDay(dayIndex){
