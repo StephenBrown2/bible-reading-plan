@@ -921,6 +921,9 @@ async function buildLive(orderIndex, chapterPointer, versePointer, withText){
   return {
     live: true, name, totalChapters, chapterForProgress: chapterPointer,
     bookId, chapter: chapterPointer, verses: shown,
+    // What the reader is actually looking at. `sum` paced the day and counts the
+    // WEB, so it is the wrong number to show beside another translation.
+    shownWords: shown.reduce((n, v) => n + wordCount(v.text), 0),
     // for one-chapter books, which measure progress in verses rather than chapters
     chapterVerses: verses.length, versesRead: versePointer - 1 + chosen.length,
     lastVerseInChapter: verses[verses.length - 1].verse,
@@ -1212,6 +1215,8 @@ function render(dateKey, result){
   document.getElementById("dateLine").textContent =
     new Date(dateKey + "T00:00:00").toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
 
+  // Falls back to the pacing count for an offline day, which has no live text.
+  const words = result.shownWords ?? result.sum;
   const root = document.getElementById("root");
   root.className = "card";
   root.innerHTML = `
@@ -1225,7 +1230,8 @@ function render(dateKey, result){
     <div class="book">${result.name}</div>
     <div class="range">${ref.label}</div>
     <div class="meta-row">
-      <span>~${estMinutes(result.sum)} min read</span>
+      <span>${words.toLocaleString()} words</span>
+      <span>~${estMinutes(words)} min read</span>
       <span>${progressLabel(result)}</span>
     </div>
     ${!result.live ? '<div class="source-note">Estimate — live text unavailable</div>' : ""}

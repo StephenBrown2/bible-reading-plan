@@ -104,7 +104,13 @@ progressions. `buildLive()` paces on the WEB, then fetches the requested
 translation and cuts it to the same verse *numbers*; a chapter's first and last
 days stay open-ended so a verse an edition has and the WEB lacks is kept.
 Backlog days past `LIVE_CATCHUP_LIMIT` pace from the WEB too and simply skip
-the translated fetch. A saved track without `webPaced` predates this, and
+the translated fetch.
+
+The meta row goes the other way. Its word count and its minute estimate both
+come from `shownWords`, the text actually on screen, because a reader comparing
+the number against the passage in front of them is owed that passage's count,
+not the WEB's. Only pacing is shared; what the row reports is not. A day with
+no live text has no `shownWords`, so the row falls back to `sum`. A saved track without `webPaced` predates this, and
 `runPlan()` replays its cursor from day 0 once to put it back in step.
 
 A split is **even, not greedy**. Filling each day to the ceiling leaves a stub
