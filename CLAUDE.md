@@ -259,8 +259,12 @@ across, which is one more reason `start_url` must stay unset.
 
 The icon is a shelf of spines in shuffled heights (the seeded order), the
 ribbon marking one book (today's reading), and a row of days beneath it: read,
-today under the ribbon, still to come. Everything sits inside the central 80%
-circle so the PNGs work as `maskable`. `icon.svg` is the source; after editing
+today under the ribbon, still to come. Five of each, not more: seven read as
+clutter at launcher size. The ribboned book is drawn exactly as in the favicon,
+gold with no band, so the two icons are recognisably the same mark. The
+artwork is scaled up in one `<g>` until its outermost corners touch the central
+80% circle, which is all a `maskable` crop is guaranteed to keep; check that
+circle again after any change to the drawing. `icon.svg` is the source; after editing
 it, re-render with
 `magick -background none -density 288 icon.svg -resize NxN` at 180
 (`apple-touch-icon.png`, since iOS ignores SVG there), 192 and 512.
