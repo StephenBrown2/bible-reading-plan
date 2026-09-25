@@ -23,6 +23,10 @@ web.json.br / .gz       embedded WEB Bible + deuterocanon, build outputs
 summaries.json.br / .gz the three tones of chapter summaries, build outputs
 summaries/              the summary prose, source of truth, hand-edited
 scripts/                the build and maintenance scripts
+manifest.webmanifest    home-screen install, see "Home screen" below
+icon.svg, icon-*.png    the app icon; the PNGs are rendered from the SVG
+icon-small.svg          the favicon, a simplified icon for tab sizes
+apple-touch-icon.png
 ```
 
 Everything the page fetches at runtime sits at the repo root, because Pages
@@ -240,6 +244,32 @@ addresses them the same way, so the external link takes a bare verse range.
 The percentage counts verse *positions*, not verse numbers: numbering has gaps
 in several of these books, so the last verse number is not the number of verses
 read.
+
+### Home screen
+`manifest.webmanifest` plus the icons make the page installable. The manifest
+deliberately has **no `start_url`**: the spec then defaults it to the URL of the
+page it was added from, query string included, so installing from a shared link
+keeps that link's seed and `startDate`. A fixed `start_url` of `/` would drop
+them. No service worker, because installing no longer needs one and the page
+already caches its assets in `localStorage`.
+
+iOS gives a home-screen app its own storage, separate from Safari's, so a plan
+started in Safari does not follow it there. The URL params are what carry it
+across, which is one more reason `start_url` must stay unset.
+
+The icon is a shelf of spines in shuffled heights (the seeded order), the
+ribbon marking one book (today's reading), and a row of days beneath it: read,
+today under the ribbon, still to come. Everything sits inside the central 80%
+circle so the PNGs work as `maskable`. `icon.svg` is the source; after editing
+it, re-render with
+`magick -background none -density 288 icon.svg -resize NxN` at 180
+(`apple-touch-icon.png`, since iOS ignores SVG there), 192 and 512.
+
+The favicon is `icon-small.svg`, a separate drawing rather than the app icon
+scaled down, because at 16px the dots and spine bands turn to mush. It keeps
+only three spines of uneven height and the ribbon, drawn on the tallest one in
+gold, since burgundy on a dark spine vanishes at that size. It is not in the
+manifest: it is too sparse to fill a home-screen tile.
 
 ### Persistence
 `localStorage` through two helpers, `load(key, fallback)` and `save(key, value)`,
