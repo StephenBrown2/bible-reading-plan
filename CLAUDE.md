@@ -269,6 +269,15 @@ it, re-render with
 `magick -background none -density 288 icon.svg -resize NxN` at 180
 (`apple-touch-icon.png`, since iOS ignores SVG there), 192 and 512.
 
+Every icon URL, and the manifest's own, carries a `?v=` query holding the
+first 8 hex digits of the file's SHA-256. Launchers and browsers keep icons in
+their own caches, keyed by URL, which clearing site data and even cached images
+does not reliably reach, so a redrawn icon under the same URL never shows up on
+a phone. `./scripts/stamp-icons.py` rewrites the stamps in
+`manifest.webmanifest` and then `index.html`, in that order because the
+manifest's hash has to cover the icon stamps inside it. Run it after any icon
+change; `--check` fails if a stamp is stale.
+
 The favicon is `icon-small.svg`, a separate drawing rather than the app icon
 scaled down, because at 16px the dots and spine bands turn to mush. It keeps
 only three spines of uneven height and the ribbon, drawn on the tallest one in
