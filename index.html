@@ -177,8 +177,14 @@
     font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft);
   }
   .panel-head select{ font-size:10px; padding:6px 12px; }
+  /* The translation picker grows into whatever its line has left. On a phone
+     the toggles wrap below it, so it fills the panel's width; the cap keeps it
+     from stretching into a long bar on the desktop page. No breakpoint needed. */
+  #versionInput{ flex:1 1 auto; max-width:24rem; }
   /* Only appears when the edition on screen isn't the one asked for. */
   .fallback-note{ font-size:11px; color:var(--ink-soft); font-style:italic; }
+  /* Empty, it would still hold a gap open beside the picker. */
+  .fallback-note:empty{ display:none; }
   /* Plain footer: after everything else in normal flow, never sticky. */
   .share{ margin-top:34px; padding-top:18px; border-top:1px solid var(--line); }
   .share label{
@@ -216,6 +222,20 @@
   }
   .passage-text .note-ref-abutting{ margin-right:.35em; }
   .passage-text .note-ref:hover{ text-decoration:underline; }
+  /* Cross-references read as quieter than notes on the text itself. Either kind
+     can be switched off from the panel heading. */
+  .passage-text .note-ref.xref{ color:var(--ink-soft); font-style:normal; }
+  .passage-text.hide-xref .note-ref.xref,
+  .passage-text.hide-foot .note-ref.foot{ display:none; }
+  /* The toggles travel as one group and hug the right edge, so they sit beside
+     the picker when there is room and wrap together beneath it when not. */
+  .note-toggles{ display:flex; gap:14px; margin-left:auto; }
+  .panel .note-toggle{
+    display:flex; align-items:center; gap:5px; margin:0;
+    font-size:11px; letter-spacing:.04em; white-space:nowrap;
+  }
+  .panel .note-toggle input{ margin:0; accent-color:var(--ribbon); }
+  .panel .note-toggle[hidden]{ display:none; }
   /* The loading overlay borrows the note's look, centred on the text panel. */
   #textPanel{ position:relative; }
   /* Tall enough that the centred overlay clears the translation picker. */
@@ -303,9 +323,16 @@
 
   <div class="panel" id="textPanel">
     <div class="panel-head">
-      <span class="panel-head-label">Passage text</span>
-      <select id="versionInput"></select>
+      <select id="versionInput" aria-label="Translation"></select>
       <span class="fallback-note" id="textFallbackNote"></span>
+      <span class="note-toggles">
+        <label class="note-toggle" id="footToggle" hidden>
+          <input type="checkbox" id="footInput"> Footnotes
+        </label>
+        <label class="note-toggle" id="xrefToggle" hidden>
+          <input type="checkbox" id="xrefInput"> Cross-references
+        </label>
+      </span>
     </div>
     <div class="passage-text" id="passageText"></div>
     <div class="panel-loading" id="textLoading" role="status">Loading…</div>
@@ -371,6 +398,9 @@ let REQUESTED_VERSION = null; // optional translation code, passed through to th
 // joke tones are the flourish.
 const SUMMARY_TONES = ["plain", "dry", "cheeky"];
 const SUMMARY_TONE_KEY = "bible-plan-summary-tone";
+// Which kinds of note show, and where each choice is saved. A reading preference
+// for this device only, so it stays out of the share link.
+const NOTE_KINDS = { foot: "bible-plan-show-footnotes", xref: "bible-plan-show-xrefs" };
 let SUMMARY_TONE = SUMMARY_TONES[0];
 // Seeds are generated on first use rather than fixed, so two people who each
 // open the bare page get different plans. Base58 (no 0/O/I/l) keeps a seed
@@ -388,8 +418,10 @@ const CATCHUP_DISPLAY_LIMIT = 20; // only list the most recent N missed days in 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Source is part of the key: two providers can use the same translation id but
 // return different amounts of structure, so their copies must not share a
-// cache entry.
-const CHAPTER_CACHE_PREFIX = "bible-chapter-cache::";
+// cache entry. The version moves when what is stored changes shape, and the
+// prune below matches any version so an old one is cleared rather than stranded.
+const CHAPTER_CACHE_BASE = "bible-chapter-cache";
+const CHAPTER_CACHE_PREFIX = `${CHAPTER_CACHE_BASE}-v2::`;
 const chapterCacheKey = (id, ch, source, translation) => `${CHAPTER_CACHE_PREFIX}${id}:${ch}:${source}:${translation}`;
 
 // A reading is one chapter, so yesterday's chapter can never be read again.
@@ -400,7 +432,7 @@ function pruneChapterCache(bookId, chapterNum){
   const keep = `${CHAPTER_CACHE_PREFIX}${bookId}:${chapterNum}:`;
   try{
     for (const key of Object.keys(localStorage)){
-      if (key.startsWith(CHAPTER_CACHE_PREFIX) && !key.startsWith(keep)) localStorage.removeItem(key);
+      if (key.startsWith(CHAPTER_CACHE_BASE) && !key.startsWith(keep)) localStorage.removeItem(key);
     }
   }catch(e){ /* storage unavailable; nothing cached to prune either */ }
 }
@@ -585,6 +617,22 @@ function wordCount(text){ return text.trim().split(/\s+/).filter(Boolean).length
 // with theirs.
 const API_BIBLE_HEADING = /^(s|r|d|ms|mr|sp|sr)\d*$/;
 const apiBibleParaBreak = (style) => /^q/.test(style || "") ? "\n" : "\n\n";
+// USFM gives a cross-reference note style x (or ex). Some editions, CSB among
+// them, file theirs as footnotes instead, but still wrap the references in char
+// style xt, so a note whose words all sit inside xt is one too. fr is only the
+// "8:1" origin label and doesn't count as words.
+function apiBibleIsCrossRef(note){
+  if (/^e?x$/.test(note.attrs && note.attrs.style)) return true;
+  let hasXt = false;
+  const outside = (items) => (items || []).map(i => {
+    const style = i.attrs && i.attrs.style;
+    if (style === "xt"){ hasXt = true; return ""; }
+    if (style === "fr") return "";
+    return i.type === "text" ? i.text : outside(i.items);
+  }).join("");
+  const rest = outside(note.items);
+  return hasXt && !/\p{L}/u.test(rest);
+}
 async function fetchFromApiBible(bookId, chapterNum, translation){
   const key = apiBibleKey();
   if (!key) return null;
@@ -623,7 +671,7 @@ async function fetchFromApiBible(bookId, chapterNum, translation){
         if (body && current !== null){
           const e = entry();
           e.text += `${NOTE_MARK}${e.notes.length}${NOTE_MARK}`;
-          e.notes.push(body);
+          e.notes.push(apiBibleIsCrossRef(item) ? XREF_MARK + body : body);
         }
         continue;
       }
@@ -681,14 +729,28 @@ const stripTags = (html) =>
 // text (<sup>ⓐ</sup>, <sup>[1]</sup>) match entries there, one per <br>, each
 // opening with its own marker. A marker whose body is missing is dropped, since
 // there would be nothing to show.
+//
+// bolls has no field for a note's kind, so a cross-reference is known two ways.
+// CSB and NABRE letter theirs (ⓐ, [AB]) and number their footnotes ([1]). The
+// rest leave bodies unmarked but link every reference, so a body that is
+// nothing but links and punctuation is a cross-reference; any footnote that
+// cites a verse still has words of its own around the link.
+const BOLLS_XREF_MARKER = /^([ⓐ-ⓩ]|\[[A-Z]+\])$/;
+function bollsIsCrossRef(html, marker){
+  if (marker && BOLLS_XREF_MARKER.test(marker)) return true;
+  const outsideLinks = stripTags(html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, "")).replace(/^\s*\[\d+\]/, "");
+  return /<a\b/i.test(html) && !/\p{L}/u.test(outsideLinks);
+}
 function bollsNotes(comment){
-  const chunks = String(comment || "").split(/<br\s*\/?>/i)
-    .map(c => stripTags(c).replace(/\s+/g, " ").trim())
-    .filter(Boolean);
+  const chunks = [];
   const keyed = new Map();
-  for (const body of chunks){
-    const marker = body.match(/^(\[\d+\]|\S)\s+/);
-    if (marker && body.length > marker[0].length) keyed.set(marker[1], body.slice(marker[0].length));
+  for (const html of String(comment || "").split(/<br\s*\/?>/i)){
+    const body = stripTags(html).replace(/\s+/g, " ").trim();
+    if (!body) continue;
+    const marker = body.match(/^(\[\w+\]|\S)\s+/);
+    const flag = bollsIsCrossRef(html, marker && marker[1]) ? XREF_MARK : "";
+    chunks.push(flag + body);
+    if (marker && body.length > marker[0].length) keyed.set(marker[1], flag + body.slice(marker[0].length));
   }
   return { chunks, keyed };
 }
@@ -804,7 +866,7 @@ const once = (fn) => { let promise = null; return () => (promise ||= fn()); };
 // holding the old bytes forever. ./build-summaries.py rewrites the line below on
 // every build; the Bible's is bumped by hand, since it changes about never.
 const SUMMARIES_VERSION = "9b7ca755";
-const getEmbeddedWeb = once(() => loadCompressedJson("web.json", "bible-embedded-web", "v1"));
+const getEmbeddedWeb = once(() => loadCompressedJson("web.json", "bible-embedded-web", "v2"));
 getEmbeddedWeb();  // start now; pacing always needs it, and awaits this same promise
 const getSummaries = once(() => loadCompressedJson("summaries.json", "bible-summaries", SUMMARIES_VERSION));
 async function fetchFromEmbedded(bookId, chapterNum){
@@ -1048,6 +1110,7 @@ function referenceRange(result){
 // becomes tags in renderVerseStream(). \u0000 is already the verse-number
 // sentinel there, so these start at \u0001.
 const NOTE_MARK = "\u0005";   // wraps a note's index within its verse
+const XREF_MARK = "\u0006";   // leads a note's body when it is a cross-reference
 const EM_OPEN = "\u0001", EM_CLOSE = "\u0002";
 const STRONG_OPEN = "\u0003", STRONG_CLOSE = "\u0004";
 function escapeHtml(s){
@@ -1090,20 +1153,26 @@ function renderVerseStream(verses){
 
   const base = NOTE_SEQ;
   NOTE_SEQ += notes.length;
+  // Footnotes are lettered among themselves, so hiding cross-references leaves
+  // no gaps in the sequence; every cross-reference shares one dagger.
+  let footnotes = 0;
+  const kinds = notes.map(body => body.startsWith(XREF_MARK)
+    ? { xref: true, label: "†", name: "Cross-reference" }
+    : { xref: false, label: noteLabel(++footnotes), name: "Footnote" });
   const renderLine = (line) => line
     .replace(/\u0000(\d+)\u0000/g, '<sup class="verse-num">$1</sup>')
     .replace(new RegExp(NOTE_MARK + "(\\d+)" + NOTE_MARK, "g"), (match, n, offset, whole) => {
       const id = `note-${base + Number(n)}`;
-      const label = noteLabel(Number(n));
+      const { xref, label, name } = kinds[Number(n) - 1];
       // Only two markers running together need separating; one followed by a
       // space already has its gap.
       const abutting = whole[offset + match.length] === NOTE_MARK ? " note-ref-abutting" : "";
       // Popover API opens the panel with no script of ours; the anchor name ties
       // it to this marker for browsers that can position against it.
-      return `<button type="button" class="note-ref${abutting}" popovertarget="${id}"` +
-             ` style="anchor-name:--${id}" aria-label="Footnote ${label}">${label}</button>` +
+      return `<button type="button" class="note-ref ${xref ? "xref" : "foot"}${abutting}" popovertarget="${id}"` +
+             ` style="anchor-name:--${id}" aria-label="${xref ? name : `${name} ${label}`}">${label}</button>` +
              `<span class="note-body" id="${id}" popover style="position-anchor:--${id}">` +
-             `${escapeHtml(notes[Number(n) - 1])}</span>`;
+             `${escapeHtml(notes[Number(n) - 1].replace(XREF_MARK, ""))}</span>`;
     })
     .replace(new RegExp(EM_OPEN, "g"), "<em>").replace(new RegExp(EM_CLOSE, "g"), "</em>")
     .replace(new RegExp(STRONG_OPEN, "g"), "<strong>").replace(new RegExp(STRONG_CLOSE, "g"), "</strong>");
@@ -1134,6 +1203,8 @@ function renderPassageText(result){
     return;
   }
   el.innerHTML = renderVerseStream(result.verses);
+  for (const kind in NOTE_KINDS)
+    document.getElementById(`${kind}Toggle`).hidden = !el.querySelector(`.note-ref.${kind}`);
 }
 
 
@@ -1173,9 +1244,18 @@ async function renderSummary(result){
     : `<p>No summary written for this passage yet.</p>`;
 }
 
+// WEB first, as the default, then the rest by name, ignoring a leading article
+// so The Message files under M. WEB gets the empty value, which keeps
+// `version` out of the share link until another edition is picked; it is the
+// only WEB entry, since a second one would fetch the very same text.
+const sortName = (label) => label.replace(/^(the|a|an)\s+/i, "");
 const versionOptions = () =>
   Object.entries(TEXT_TRANSLATIONS)
-    .map(([code, t]) => `<option value="${code}">${t.label}</option>`)
+    .sort(([ca, a], [cb, b]) => (cb === "WEB") - (ca === "WEB") ||
+      sortName(a.label).localeCompare(sortName(b.label)))
+    .map(([code, t]) => code === "WEB"
+      ? `<option value="">${t.label} (default)</option>`
+      : `<option value="${code}">${t.label}</option>`)
     .join("");
 
 // No version param for an ordinary book: BibleGateway falls back to its own
@@ -1327,8 +1407,10 @@ async function runPlan(resetFirst){
   document.getElementById("timeInput").value = MAX_MINUTES;
   document.getElementById("wpmInput").value = WORDS_PER_MINUTE;
   const versionInput = document.getElementById("versionInput");
-  versionInput.innerHTML = `<option value="">Default (World English Bible)</option>` + versionOptions();
-  versionInput.value = (REQUESTED_VERSION || "").toUpperCase();
+  versionInput.innerHTML = versionOptions();
+  // A link carrying version=WEB still lands on the one WEB entry.
+  const shown = (REQUESTED_VERSION || "").toUpperCase();
+  versionInput.value = shown === "WEB" ? "" : shown;
 
   let state = resetFirst ? defaultState() : loadState(ACTIVE_SEED, MAX_MINUTES, WORDS_PER_MINUTE);
   const today = localDateKey(new Date());
@@ -1554,6 +1636,7 @@ async function init(){
   const storedTone = load(SUMMARY_TONE_KEY, SUMMARY_TONES[0]);
   SUMMARY_TONE = SUMMARY_TONES.includes(storedTone) ? storedTone : SUMMARY_TONES[0];
   document.getElementById("summaryToneInput").value = SUMMARY_TONE;
+  for (const kind in NOTE_KINDS) showNotes(kind, load(NOTE_KINDS[kind], true) !== false);
   PENDING_START_DATE = urlParams.startDate || null;
   TARGET_MAX_WORDS = MAX_MINUTES * WORDS_PER_MINUTE;
   setActiveSeed(ACTIVE_SEED);
@@ -1618,6 +1701,18 @@ document.getElementById("summaryToneInput").addEventListener("change", (e) => {
   save(SUMMARY_TONE_KEY, SUMMARY_TONE);
   if (CURRENT_RESULT) renderSummary(CURRENT_RESULT);
 });
+// A class on the container rather than a re-render, so the passage keeps its
+// scroll position and any open note.
+function showNotes(kind, on){
+  document.getElementById(`${kind}Input`).checked = on;
+  document.getElementById("passageText").classList.toggle(`hide-${kind}`, !on);
+}
+for (const kind in NOTE_KINDS){
+  document.getElementById(`${kind}Input`).addEventListener("change", (e) => {
+    showNotes(kind, e.target.checked);
+    save(NOTE_KINDS[kind], e.target.checked);
+  });
+}
 
 // Copy the share link, and say so on the button. Where the Clipboard API is
 // unavailable or refused (insecure context, permission denied), select the text

@@ -294,7 +294,9 @@ drops everything but the current chapter after each render. A reading is one
 chapter, so yesterday's can never be read again; without the prune a year of
 daily reading would put roughly 2.7MB of chapter JSON against a 5MB origin
 quota, and once `save()` starts throwing the cache would silently never fill
-again. The two compressed static datasets are separate: their base64 forms are
+again. The key carries a version (`bible-chapter-cache-v2::`), bumped whenever
+a provider's parsed shape changes so a stale copy can't outlive the change, and
+the prune matches any version so the old entries go too. The two compressed static datasets are separate: their base64 forms are
 cached under stamped `bible-embedded-web` and `bible-summaries` keys and are not
 pruned, because they are the whole Bible and the whole summary set and their
 whole point is preventing a repeat download.
@@ -305,7 +307,7 @@ per session. The version is in the cache key rather than beside it, so a
 rebuilt asset lands under a new key instead of being shadowed by the old bytes
 forever, and the superseded entry is dropped on the way past.
 `SUMMARIES_VERSION` is rewritten by `./scripts/build-summaries.py` on every
-build for exactly that reason; the Bible's `v1` is bumped by hand, since it
+build for exactly that reason; the Bible's version, in `getEmbeddedWeb()`, is bumped by hand, since it
 changes about never.
 
 ### Chapter summaries
@@ -388,8 +390,9 @@ edition without the book answers with a 404 or an empty chapter, which falls
 through to the next attempt on its own.
 
 The passage text's `<select>` is built from `TEXT_TRANSLATIONS` by
-`versionOptions()` and sits on the text panel's heading line, in place of the
-translation name that used to be printed there, so it appears only with Show
+`versionOptions()` and leads the text panel's heading line, with no "Passage
+text" label beside it (an open panel needs no title, and on a phone the label
+pushed the picker onto a line of its own), so it appears only with Show
 text and applies on `change`: a translation changes only which text is
 fetched, never the pacing or the plan's position, so it needs no Apply. For the
 same reason the day on screen stays put: the handler notes `VIEW_DAY_INDEX`
@@ -412,8 +415,10 @@ it uses `REQUESTED_VERSION` if that's one of the `deutero: true` codes, else
 not off anything the reader picks for the "Read online" link specifically.
 
 `version` stays out of the shareable link until it is actually chosen, since the
-default option's value is `""` and `updateShareLink()` only writes the parameter
-when `REQUESTED_VERSION` is set.
+WEB option, the default, has the value `""` and `updateShareLink()` only writes
+the parameter when `REQUESTED_VERSION` is set. It is the picker's only WEB
+entry, labelled "(default)"; a separate explicit WEB option would fetch the same
+text and only add `version=WEB` to the link. WEB comes first, as the default; the rest are sorted by label, ignoring a leading article (The Message files under M).
 
 The shareable link is a plain `<footer class="share">` at the end of `.page`, in
 normal flow. Deliberately not sticky: it is a thing to copy occasionally, not a
@@ -553,19 +558,52 @@ Only a marker immediately followed by *another* marker gets trailing space
 after the match, because CSS sibling selectors can't see the text node that
 separates the common case.
 
+A cross-reference's body starts with `XREF_MARK` (`\u0006`), set where each
+provider's notes are parsed, from the source's own labels wherever it has them.
+The renderer only reads the flag. Footnotes are lettered among themselves and
+every cross-reference shows a muted `†`, so hiding them leaves the letters
+without gaps. Per source, see the list below.
+
+Every marker carries `.foot` or `.xref`, and the "Footnotes" and
+"Cross-references" checkboxes on the text panel's heading line toggle
+`.hide-foot` / `.hide-xref` on `#passageText` rather than re-rendering, so an
+open note and the scroll position survive. Each appears only when the passage
+has that kind. `NOTE_KINDS` maps each kind to its storage key
+(`bible-plan-show-footnotes`, `bible-plan-show-xrefs`); both stay out of the
+URL, since they are how one person likes to read, not part of the plan.
+
+The two checkboxes sit in one `.note-toggles` group with `margin-left:auto`.
+The picker is as wide as its longest option, so on a phone (checked at 412px
+and 448px, Pixel 9 and 8 Pro) the group wraps as a unit to a second line,
+right-aligned, and on the desktop page all three share one line. The picker
+takes `flex:1 1 auto` with a `max-width` cap, so it fills the panel's width on a
+phone and stays a normal pill on the desktop, without a breakpoint. That only
+reaches the edge because an empty `.fallback-note` is `display:none`: an empty
+flex item still holds a gap open beside the picker. Keep them in
+the one group: separately, they wrap one at a time and leave one dangling.
+
 Where each source keeps them:
 - **Embedded**: `<f>` and `<x>` from the USFX, captured by `build-embedded.py`
   into the third element of a verse entry. 2,867 notes, which cost 74KB of the
-  compressed blob.
+  compressed blob. An `<x>` gets `XREF_MARK`, which is exact: 358 of them.
 - **api.bible**: `include-notes=true`, then `name: "note"` items whose `fr`/`ft`
   children read fine run together. Two traps there: `char` style `sup` is the
   printed punctuation *between* two note callers and would otherwise land in the
   verse as a stray comma, and api.bible brackets some dashes with `#`, which is
-  markup rather than text.
+  markup rather than text. A cross-reference is style `x`/`ex`, or, because CSB
+  files every cross-reference as an `f`, a note whose words all sit inside char
+  style `xt` (`fr` is just the "8:1" label). See `apiBibleIsCrossRef()`.
 - **bolls**: bodies live in a separate `comment` field, one per `<br>`, each
   opening with the marker that matches a `<sup>` in the verse. Several editions
   (ESV, NKJV, NLT) supply bodies with no marker in the text at all, so those
   attach to the end of the verse instead of being dropped. NIV has none.
+  bolls has no field for the kind. CSB17 and NABRE say it in the marker,
+  letters (`ⓐ`, `[AB]`) for cross-references and `[1]` for footnotes; every
+  other edition links each reference, so a body that is only links and
+  punctuation is a cross-reference. That rule matched by hand across ESV, NKJV,
+  NLT, NRSVCE, RSV, NET, AMP and CEB. The one known split is CSB's numbered
+  footnote citing an OT quotation ("Is 7:14"), which bolls keeps a footnote and
+  api.bible's `xt` makes a cross-reference; each follows its source's label.
 
 ### The wider canon and its fallbacks
 The 10 wider-canon books deliberately have **no bolls number**. bolls renumbers

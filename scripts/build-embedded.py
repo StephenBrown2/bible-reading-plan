@@ -13,7 +13,8 @@ renderVerseStream() splits on.
 
 Only text between <v> and <ve/> is kept, which drops titles, section headings
 and Psalm superscriptions for free since those sit outside verse ranges.
-Footnotes and cross-references are dropped explicitly, being inside them.
+Footnotes and cross-references are lifted out into a verse's notes, a
+cross-reference's body led by XREF_MARK.
 
 Usage: ./build-embedded.py [--check]
   --check  parse and report, without writing the compressed assets
@@ -48,6 +49,7 @@ DROP = {"d", "id", "ide", "h", "toc", "cl", "rem", "fig"}
 NOTES = {"f", "x"}          # footnote and cross-reference, kept and marked
 PARA_BREAK, LINE_BREAK = "\n\n", "\n"
 NOTE_MARK = "\u0005"        # renderVerseStream() turns these into popover buttons
+XREF_MARK = "\u0006"        # leads a cross-reference's body, so the page can hide them
 
 
 def parse(xml_text: str) -> dict:
@@ -110,7 +112,7 @@ def parse(xml_text: str) -> dict:
             state["note"] = None
             if body:
                 verse[1] += f"{NOTE_MARK}{len(notes)}{NOTE_MARK}"
-                notes.append(body)
+                notes.append(XREF_MARK + body if tag == "x" else body)
             return
         if tag == "book":
             reset(elem.get("id"))
