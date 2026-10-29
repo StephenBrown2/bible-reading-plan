@@ -255,6 +255,16 @@
     box-shadow:0 6px 24px rgba(0,0,0,.14);
   }
   .note-body::backdrop{ background:rgba(0,0,0,.06); }
+  /* A note opened from poetry sits inside a .poem-line and would inherit its
+     hanging indent, pulling the first line back over the left padding. */
+  .note-body{ text-indent:0; }
+  /* Padding normally measures from the line box, whose leading and descender
+     room make the vertical gaps look deeper than the side ones. Trimming to cap
+     height and baseline measures it from the letters, so all four sides match.
+     Without support the plain 12px 16px above stands, which is fine. */
+  @supports (text-box: trim-both cap alphabetic){
+    .note-body, .panel-loading{ text-box: trim-both cap alphabetic; padding:16px; }
+  }
   /* Anchor the note to its own marker where the browser can; elsewhere the
      popover keeps its centred default, which is why this is a @supports block
      rather than a plain rule. */

@@ -553,6 +553,15 @@ edge and read the geometry from there. That lives in an `@supports (anchor-name:
 anchor positioning the popover keeps its centred default, which is a fine
 fallback rather than a broken one.
 
+The popover is a child of the verse it annotates, so it inherits that verse's
+text styles. `.note-body` resets `text-indent` because a `.poem-line`'s hanging
+indent otherwise pulls the note's first line back over its left padding; check
+any new inheritable style on `.poem-line` or `p` against an open note. The
+note and the loading box use `text-box: trim-both cap alphabetic` with an even
+16px padding, so the gap is measured from the letters rather than the line box,
+whose leading and descender room otherwise make the top and bottom look deeper
+than the sides. It sits in `@supports`; without it the plain `12px 16px` stands.
+
 Only a marker immediately followed by *another* marker gets trailing space
 (`.note-ref-abutting`). The renderer decides that by looking at the character
 after the match, because CSS sibling selectors can't see the text node that
