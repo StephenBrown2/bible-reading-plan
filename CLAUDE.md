@@ -170,6 +170,16 @@ jumping to today. Today's entry commits as soon as it is reached, so a visitor
 with nothing owed behaves exactly as before. "Skip to today" and clicking ahead
 in the list commit everything jumped over; stepping back only re-reads.
 
+Stepping back to a day that isn't in `BROWSE_READINGS` has to replay from the
+nearest earlier day it knows, which after a fresh load is the plan's first day,
+because a day's start is only known from the day before. `showReadingForDay()`
+replays those days from the WEB alone (`generateReading(cursor, false)`), which
+is in memory and needs no network, and fetches the translation only for the day
+being shown. The replayed days are kept, marked `paceOnly`, as stepping stones;
+landing on one rebuilds it with its text. Fetching text for every replayed day
+cost one round trip per day since the start: 36 seconds for one step back on a
+60-day CSB plan, against one fetch now.
+
 ### The reading-order panel
 83 entries in a horizontally scrolled grid of 12 rows. Columns are uniform and
 as wide as the longest entry, which comes from `grid-auto-columns: 1fr` inside a

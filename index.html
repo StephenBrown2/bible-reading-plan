@@ -1558,8 +1558,10 @@ async function showReadingForDay(dayIndex){
   const request = ++BROWSE_REQUEST;
   updateReadingNavigation(true);
   try{
+    // A day reached only as a stepping stone has no translated text yet, so
+    // landing on one builds it properly.
     let entry = BROWSE_READINGS.get(target);
-    if (!entry){
+    if (!entry || entry.paceOnly){
       let nearestDay = -1;
       let cursor = { orderIndex: 0, chapterPointer: 1, versePointer: 1 };
       for (const [knownDay, knownEntry] of BROWSE_READINGS){
@@ -1574,7 +1576,8 @@ async function showReadingForDay(dayIndex){
       }
       for (let index = nearestDay + 1; index <= target; index++){
         entry = BROWSE_READINGS.get(index);
-        if (entry){
+        const isTarget = index === target;
+        if (entry && !(isTarget && entry.paceOnly)){
           cursor = {
             orderIndex: entry.result.nextOrderIndex,
             chapterPointer: entry.result.nextChapter,
@@ -1583,11 +1586,16 @@ async function showReadingForDay(dayIndex){
           continue;
         }
         if (cursor.orderIndex >= ORDER.length) return;
-        const result = await generateReading(cursor, true);
+        // Only the day being shown needs its translation. The days before it
+        // are walked just to find where it starts, which the WEB in memory
+        // answers; fetching each one's text made a step back from a fresh page
+        // load cost one network round trip per day since the plan began.
+        const result = await generateReading(cursor, isTarget);
         entry = {
           date: addDays(PLAN_STATE.startDate, index),
           cursor: { ...cursor },
-          result
+          result,
+          paceOnly: !isTarget
         };
         BROWSE_READINGS.set(index, entry);
         cursor = {
