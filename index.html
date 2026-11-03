@@ -211,14 +211,16 @@
   .passage-text .verse-num{
     color:var(--ribbon); font-weight:600; margin-left:.35em; margin-right:2px;
   }
+  .passage-text .selection-extra{ display:none; }
+  .passage-text .selection-extra.selected{ display:inline; }
   /* A verse number opening a paragraph or a poetry line needs no space in front. */
-  .passage-text p > .verse-num:first-child,
-  .passage-text .poem-line > .verse-num:first-child{ margin-left:0; }
+  .passage-text p > .verse:first-child > .verse-num:first-child,
+  .passage-text .poem-line > .verse:first-child > .verse-num:first-child{ margin-left:0; }
   .passage-text .note-ref{
     font-family:inherit; font-size:.7em; vertical-align:super; line-height:0;
     color:var(--ribbon); font-style:italic; background:none; border:none;
     padding:0; margin:0 0 0 1px; border-radius:0; letter-spacing:0;
-    text-transform:none; cursor:pointer;
+    text-transform:none; cursor:pointer; -webkit-user-select:none; user-select:none;
   }
   .passage-text .note-ref-abutting{ margin-right:.35em; }
   .passage-text .note-ref:hover{ text-decoration:underline; }
@@ -1141,7 +1143,7 @@ function noteLabel(n){
   return out;
 }
 
-function renderVerseStream(verses){
+function renderVerseStream(verses, chapter){
   // Notes are per verse in the data but numbered per passage for the reader, so
   // they are flattened here and the in-text markers renumbered to match.
   const notes = [];
@@ -1169,8 +1171,9 @@ function renderVerseStream(verses){
   const kinds = notes.map(body => body.startsWith(XREF_MARK)
     ? { xref: true, label: "†", name: "Cross-reference" }
     : { xref: false, label: noteLabel(++footnotes), name: "Footnote" });
-  const renderLine = (line) => line
-    .replace(/\u0000(\d+)\u0000/g, '<sup class="verse-num">$1</sup>')
+  const renderInline = (line) => line
+    .replace(/\u0000(\d+)\u0000/g, (_, verse) =>
+      `<sup class="verse-num"><span class="selection-extra">${chapter}:</span>${verse}</sup><span class="selection-extra"> </span>`)
     .replace(new RegExp(NOTE_MARK + "(\\d+)" + NOTE_MARK, "g"), (match, n, offset, whole) => {
       const id = `note-${base + Number(n)}`;
       const { xref, label, name } = kinds[Number(n) - 1];
@@ -1187,6 +1190,13 @@ function renderVerseStream(verses){
     .replace(new RegExp(EM_OPEN, "g"), "<em>").replace(new RegExp(EM_CLOSE, "g"), "</em>")
     .replace(new RegExp(STRONG_OPEN, "g"), "<strong>").replace(new RegExp(STRONG_CLOSE, "g"), "</strong>");
 
+  // A verse can cross poetry lines or paragraphs, so each fragment shares its id.
+  let verse = null;
+  const renderLine = line => line.split(/(?=\u0000\d+\u0000)/).map(part => {
+    const marker = part.match(/^\u0000(\d+)\u0000/);
+    if (marker) verse = marker[1];
+    return `<span class="verse" data-verse="${verse}">${renderInline(part)}</span>`;
+  }).join("");
   const paragraphs = stream.split(/\n\n+/).filter(p => p.length);
   return paragraphs.map(p => {
     const lines = p.split(/\n/).filter(l => l.length);
@@ -1212,7 +1222,7 @@ function renderPassageText(result){
     el.innerHTML = `<p style="font-size:13px;color:var(--ink-soft)">Live text wasn't reachable, so this is an estimate rather than the actual passage. Use "Read online" below for the text.</p>`;
     return;
   }
-  el.innerHTML = renderVerseStream(result.verses);
+  el.innerHTML = renderVerseStream(result.verses, result.chapter);
   for (const kind in NOTE_KINDS)
     document.getElementById(`${kind}Toggle`).hidden = !el.querySelector(`.note-ref.${kind}`);
 }
@@ -1711,6 +1721,59 @@ document.getElementById("readingNext").addEventListener("click", () => {
 });
 
 document.getElementById("textBtn").addEventListener("click", () => togglePanel("textPanel"));
+const passageText = document.getElementById("passageText");
+function syncVerseSelection(){
+  const selection = window.getSelection();
+  for (const extra of passageText.querySelectorAll(".selection-extra"))
+    extra.classList.toggle("selected", !selection.isCollapsed && selection.getRangeAt(0).intersectsNode(extra));
+}
+document.addEventListener("selectionchange", syncVerseSelection);
+function selectVerseRange(verses){
+  const fragments = [...passageText.querySelectorAll(".verse")].filter(fragment =>
+    verses.some(verse => verse.dataset.verse === fragment.dataset.verse));
+  const range = document.createRange();
+  range.setStartBefore(fragments[0]);
+  range.setEndAfter(fragments[fragments.length - 1]);
+  // Finish reference layout before installing the native selection and its handles.
+  for (const extra of passageText.querySelectorAll(".selection-extra"))
+    extra.classList.toggle("selected", range.intersectsNode(extra));
+  passageText.getBoundingClientRect();
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+let versePointer = null;
+passageText.addEventListener("pointerdown", event => {
+  const selection = window.getSelection();
+  versePointer = {
+    x: event.clientX, y: event.clientY, type: event.pointerType,
+    selecting: !selection.isCollapsed,
+    verses: selection.isCollapsed ? [] : [...passageText.querySelectorAll(".verse")]
+      .filter(verse => selection.getRangeAt(0).intersectsNode(verse))
+  };
+});
+passageText.addEventListener("contextmenu", event => {
+  const pointer = versePointer;
+  const verse = event.target.closest(".verse");
+  if (pointer?.type !== "touch" || !pointer.selecting || !verse ||
+      event.target.closest(".note-ref, .note-body") ||
+      pointer.verses.some(selected => selected.dataset.verse === verse.dataset.verse)) return;
+  event.preventDefault();
+  selectVerseRange([...pointer.verses, verse]);
+  // A following compatibility click must not replace the extended selection.
+  versePointer = null;
+});
+passageText.addEventListener("click", event => {
+  const pointer = versePointer;
+  versePointer = null;
+  const verse = event.target.closest(".verse");
+  const selection = window.getSelection();
+  // Leave native dragging, selection handles, repeated clicks and notes alone.
+  if (!verse || event.target.closest(".note-ref, .note-body") || event.detail !== 1 ||
+      event.button !== 0 || !pointer || pointer.selecting || !selection.isCollapsed ||
+      Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 8) return;
+  selectVerseRange([verse]);
+});
 document.getElementById("summaryBtn").addEventListener("click", () => togglePanel("summaryPanel"));
 // Re-renders the panel alone: the tone changes no pacing and no position, so it
 // needs neither an Apply nor a full runPlan().

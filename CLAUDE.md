@@ -524,6 +524,24 @@ bolls.
 for poetry. A source with no structure info renders as one flowing paragraph.
 That's graceful degradation, not a bug.
 
+Verse markers normally show only the verse number. The chapter prefix and a
+real separating space live in `.selection-extra` spans, which are displayed
+only when the native selection intersects them, so selected text includes a
+usable `chapter:verse` reference. A single tap selects the whole verse with a DOM
+Range. `.verse` fragments share `data-verse` across poetry lines and paragraphs;
+keep those ids together when changing the renderer. Existing selections, drags,
+repeated clicks and footnote controls retain their native behavior. The browser
+check is `scripts/check-verse-selection.cjs`, run with Playwright available to Node.
+Note markers use `user-select: none` so native selection and copying omit them
+while their popover buttons remain usable.
+`selectVerseRange()` reveals the reference and flushes layout before installing
+the selection, avoiding a reference layout change after native handles appear.
+On touch devices, long-pressing a verse outside an existing selection extends
+the selection through that verse, including intervening verses. This uses the
+browser's `contextmenu` gesture; a long-press inside the selection keeps the
+native copy menu. The range at pointer-down is retained because native
+long-press selection can replace it before `contextmenu` arrives.
+
 ### Footnotes
 A verse carries an optional `notes` array, and its text carries `\u0005i\u0005`
 markers naming the index. `renderVerseStream()` flattens the passage's notes,
