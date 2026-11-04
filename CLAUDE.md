@@ -294,6 +294,25 @@ only three spines of uneven height and the ribbon, drawn on the tallest one in
 gold, since burgundy on a dark spine vanishes at that size. It is not in the
 manifest: it is too sparse to fill a home-screen tile.
 
+### Theme
+Light and dark come from one set of CSS variables in `:root`, each written as
+`light-dark(light, dark)`. Which half applies is decided by `color-scheme`:
+`light dark` by default, so the system preference wins, and pinned to `light`
+or `dark` by `html[data-theme]` when the reader picks one under "Settings".
+Native controls, scrollbars and the date picker follow `color-scheme` on their
+own. Add any new colour as a variable there, never as a literal in a rule, or
+it stays light in dark mode.
+
+The choice lives in `bible-plan-theme` and stays out of the URL, like the note
+toggles, since it is how one person reads rather than part of the plan.
+`applyTheme()` sits in a small `<script>` in `<head>`, not the main script, so
+a chosen theme is on before the first paint instead of flashing light. It also
+pins both `theme-color` metas, which otherwise follow the system through their
+`media` queries. `scripts/check-verse-selection.cjs` evaluates the *last*
+`<script>` for that reason. The manifest's `theme_color` and
+`background_color` stay light: a manifest has no dark variant that browsers
+honour.
+
 ### Persistence
 `localStorage` through two helpers, `load(key, fallback)` and `save(key, value)`,
 which own the JSON round-trip and the try/catch. Private browsing and a full

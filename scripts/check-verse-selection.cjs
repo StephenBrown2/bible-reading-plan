@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 
 (async () => {
   const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
+  const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1]
     .replace(/if \(document.readyState === "loading"\)[\s\S]*$/, '');
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH });
   try {

@@ -4,21 +4,44 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Daily Reading</title>
-<meta name="theme-color" content="#f6f1e6">
+<meta name="theme-color" content="#f6f1e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1a16" media="(prefers-color-scheme: dark)">
+<script>
+// In <head> so a chosen theme is on before the first paint. No choice means
+// color-scheme stays "light dark" and the system preference decides. The
+// browser bar colour follows: each meta keeps its media query and only its
+// colour is pinned while a theme is chosen.
+function applyTheme(theme){
+  const root = document.documentElement;
+  if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
+  for (const m of document.querySelectorAll('meta[name="theme-color"]'))
+    m.content = { light: "#f6f1e6", dark: "#1c1a16" }[theme || m.media.match(/light|dark/)[0]];
+}
+try{ applyTheme(JSON.parse(localStorage.getItem("bible-plan-theme"))); }catch(e){}
+</script>
 <link rel="manifest" href="manifest.webmanifest?v=2dd20640">
 <link rel="icon" href="icon-small.svg?v=2028e281" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=c3f5392a">
 <style>
+  /* light-dark() picks by the used color-scheme, so the system preference
+     decides unless data-theme pins one. Native controls follow it too. */
   :root{
-    --paper:#f6f1e6;
-    --ink:#242019;
-    --ink-soft:#5c5548;
-    --ribbon:#7a3b2e;
-    --ribbon-dim:#c9a68f;
-    --line:#ddd2bd;
-    --gold:#a9852f;
-    --slate:#3f5560;
+    color-scheme:light dark;
+    --paper:light-dark(#f6f1e6, #1c1a16);
+    --card:light-dark(#fffdf8, #25221d);
+    --tint:light-dark(#fbf3ea, #2e2520);
+    --ink:light-dark(#242019, #e6dfd0);
+    --ink-soft:light-dark(#5c5548, #a89f8e);
+    --ribbon:light-dark(#7a3b2e, #d08a72);
+    --ribbon-dim:light-dark(#c9a68f, #7a5446);
+    --line:light-dark(#ddd2bd, #3b362e);
+    --gold:light-dark(#a9852f, #c9a451);
+    --slate:light-dark(#3f5560, #93abb7);
+    --shadow:light-dark(rgba(36,32,25,.5), rgba(0,0,0,.7));
+    --scrim:light-dark(rgba(0,0,0,.06), rgba(0,0,0,.35));
   }
+  :root[data-theme=light]{ color-scheme:light; }
+  :root[data-theme=dark]{ color-scheme:dark; }
   *{box-sizing:border-box;}
   body{
     margin:0;
@@ -38,8 +61,8 @@
   }
   .date{ text-align:center; font-size:13px; color:var(--ink-soft); margin-bottom:22px; }
   .card{
-    position:relative; background:#fffdf8; border:1px solid var(--line); border-radius:2px;
-    padding:34px 24px 28px; box-shadow:0 1px 0 var(--line), 0 12px 24px -18px rgba(36,32,25,.5);
+    position:relative; background:var(--card); border:1px solid var(--line); border-radius:2px;
+    padding:34px 24px 28px; box-shadow:0 1px 0 var(--line), 0 12px 24px -18px var(--shadow);
   }
   .ribbon{
     position:absolute; top:-2px; right:28px; width:26px; height:60px; background:var(--ribbon);
@@ -116,7 +139,7 @@
   .loading{ text-align:center; color:var(--ink-soft); padding:60px 0; font-size:14px; }
   .confirm{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:10px; }
   .panel{
-    margin-top:18px; border:1px solid var(--line); border-radius:2px; background:#fffdf8;
+    margin-top:18px; border:1px solid var(--line); border-radius:2px; background:var(--card);
     padding:16px 18px; display:none;
   }
   .panel.open{ display:block; }
@@ -150,7 +173,7 @@
   .order-list b{ color:var(--ribbon); font-weight:600; }
   .catchup{
     margin-bottom:16px; border:1px solid var(--ribbon-dim); border-radius:2px;
-    background:#fbf3ea; padding:14px 18px;
+    background:var(--tint); padding:14px 18px;
   }
   .catchup-title{
     font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ribbon);
@@ -248,15 +271,15 @@
   /* The same tint a note's ::backdrop lays over the page, kept to the panel. */
   #textPanel:has(> .panel-loading:not([hidden]))::after{
     content:""; position:absolute; inset:0; border-radius:inherit;
-    background:rgba(0,0,0,.06);
+    background:var(--scrim);
   }
   .note-body, .panel-loading{
     max-width:min(34rem, 90vw); font-size:14px; line-height:1.6;
     color:var(--ink); background:var(--paper);
     border:1px solid var(--ribbon-dim); border-radius:3px; padding:12px 16px;
-    box-shadow:0 6px 24px rgba(0,0,0,.14);
+    box-shadow:0 6px 24px light-dark(rgba(0,0,0,.14), rgba(0,0,0,.5));
   }
-  .note-body::backdrop{ background:rgba(0,0,0,.06); }
+  .note-body::backdrop{ background:var(--scrim); }
   /* A note opened from poetry sits inside a .poem-line and would inherit its
      hanging indent, pulling the first line back over the left padding. */
   .note-body{ text-indent:0; }
@@ -314,7 +337,7 @@
     <a id="readBtn" class="action-link" href="#" target="_blank" rel="noopener">Read online</a>
     <button id="orderBtn">View full order</button>
     <button id="readingPrev">Previous</button>
-    <button id="seedBtn">Change seed</button>
+    <button id="seedBtn">Settings</button>
     <button id="resetBtn">Restart plan</button>
     <button id="readingNext">Next</button>
   </div>
@@ -366,6 +389,15 @@
     </div>
     <div class="row" style="margin-top:10px">
       <div class="minirow">start date <input type="date" id="startDateInput" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="minirow">theme
+        <select id="themeInput">
+          <option value="">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
     </div>
     <div class="row" style="margin-top:10px">
       <button id="applySeedBtn">Apply</button>
@@ -1788,6 +1820,14 @@ function showNotes(kind, on){
   document.getElementById(`${kind}Input`).checked = on;
   document.getElementById("passageText").classList.toggle(`hide-${kind}`, !on);
 }
+// Like the note toggles: how one person likes to read, so it applies at once,
+// needs no Apply, and stays out of the URL.
+const themeInput = document.getElementById("themeInput");
+themeInput.value = load("bible-plan-theme", null) || "";
+themeInput.addEventListener("change", () => {
+  applyTheme(themeInput.value || null);
+  save("bible-plan-theme", themeInput.value || null);
+});
 for (const kind in NOTE_KINDS){
   document.getElementById(`${kind}Input`).addEventListener("change", (e) => {
     showNotes(kind, e.target.checked);
